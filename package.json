@@ -1,0 +1,24 @@
+{
+  "name": "pj-gen",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Générateur de projets autonome piloté par claude -p (abonnement)",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,web -c blue,green \"npm run dev -w server\" \"npm run dev -w web\"",
+    "dev:fake": "concurrently -n server,web -c blue,green \"npm run dev:fake -w server\" \"npm run dev -w web\"",
+    "build": "npm run build -w web",
+    "start": "npm run start -w server",
+    "start:fake": "npm run start:fake -w server",
+    "test": "npm run test -w server",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  }
+}

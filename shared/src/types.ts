@@ -1,0 +1,286 @@
+import type { FailureKind, ModelName, PipelineMode, ProjectStatus, StepKey, StepRunStatus, TaskStatus } from './statuses.js';
+
+/** Token consumption of a run/project — what actually drives the subscription 5h limit. */
+export interface TokenUsage {
+  input: number;
+  output: number;
+  cacheCreation: number;
+  cacheRead: number;
+  /** input + output + cacheCreation + cacheRead */
+  total: number;
+}
+
+export interface StackInfo {
+  language: string;
+  framework: string;
+  package_manager: string;
+  install_cmd: string;
+  build_cmd: string;
+  test_cmd: string;
+  run_cmd: string;
+}
+
+export interface ProjectSummary {
+  id: string;
+  slug: string;
+  title: string;
+  status: ProjectStatus;
+  model: ModelName | null;
+  /** Build/improvement cycle number: 1 = initial build, 2+ = reopened iterations. */
+  iteration: number;
+  workspacePath: string;
+  currentStepKey: StepKey | null;
+  currentTaskKey: string | null;
+  queuePosition: number | null;
+  tasksDone: number;
+  tasksTotal: number;
+  tokens: TokenUsage;
+  errorMessage: string | null;
+  specValidatedAt: number | null;
+  /** 'micro' while a live micro-modification cycle is queued/running. */
+  pipelineMode: PipelineMode;
+  /** Per-project design benchmark toggle; null = follow the global setting. */
+  designBenchmark: boolean | null;
+  /** GitHub link state; null when the project is not published. */
+  github: { repo: string; private: boolean; autoMode: boolean; lastPushSha: string | null; lastPushAt: number | null } | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface TaskDto {
+  taskKey: string;
+  position: number;
+  title: string;
+  description: string;
+  filesHint: string[];
+  acceptance: string[];
+  dependsOn: string[];
+  status: TaskStatus;
+  commitSha: string | null;
+}
+
+export interface StepRunDto {
+  id: number;
+  projectId: string;
+  stepKey: StepKey;
+  taskKey: string | null;
+  attempt: number;
+  status: StepRunStatus;
+  sessionId: string | null;
+  resumeAt: number | null;
+  model: string | null;
+  numTurns: number;
+  tokens: TokenUsage;
+  errorKind: FailureKind | null;
+  errorMessage: string | null;
+  startedAt: number | null;
+  endedAt: number | null;
+}
+
+export interface ChatMessageDto {
+  id: number;
+  projectId: string;
+  sessionKind: 'cadrage' | 'deploy';
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  structured: CadrageStructured | null;
+  createdAt: number;
+}
+
+export interface CadrageStructured {
+  open_questions?: string[];
+  ready_for_spec?: boolean;
+}
+
+export type MicroRequestStatus = 'pending' | 'task_created' | 'done' | 'failed' | 'needs_clarification';
+
+/** A live micro-modification: a small change request turned into a single task, no full pipeline. */
+export interface MicroRequestDto {
+  id: number;
+  projectId: string;
+  source: 'manual' | 'issue';
+  issueId: number | null;
+  request: string;
+  taskKey: string | null;
+  status: MicroRequestStatus;
+  errorMessage: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProjectDetail extends ProjectSummary {
+  initialPrompt: string;
+  stack: StackInfo | null;
+  stepModelOverrides: Partial<Record<StepKey, ModelName>>;
+  tasks: TaskDto[];
+  stepRuns: StepRunDto[];
+  messages: ChatMessageDto[];
+  microRequests: MicroRequestDto[];
+  /** True while a SPEC generation session is running/queued for this project. */
+  specGenerating: boolean;
+}
+
+export interface StepCap {
+  turns: number;
+  timeoutMin: number;
+}
+
+export interface NotifyEvents {
+  deployReady: boolean;
+  buildFailed: boolean;
+  quotaResumed: boolean;
+}
+
+export interface SettingsDto {
+  maxConcurrentBuilds: number;
+  defaultModel: ModelName;
+  autoResumeOnBoot: boolean;
+  skipTestHardening: boolean;
+  maxBudgetUsdPerSession: number;
+  stepCaps: Record<string, StepCap>;
+  /** Default model per step (cadrage/spec included); project stepModelOverrides win over these. */
+  stepModels: Record<string, ModelName>;
+  /** Global default for the design benchmark step (overridable per project). */
+  designBenchmark: boolean;
+  /** Default visibility when publishing a project to GitHub. */
+  githubDefaultPrivate: boolean;
+  /** GitHub issue poll interval in minutes (linked projects only). */
+  issuePollMinutes: number;
+  /** Webhook (ntfy.sh-compatible) for background-run notifications; empty = disabled. */
+  notifyUrl: string;
+  notifyEvents: NotifyEvents;
+  /** Expose the UI/API on the local network (no auth — trusted LAN only). */
+  exposeLan: boolean;
+}
+
+/** Live state of the LAN exposure proxy. */
+export interface LanStatusDto {
+  enabled: boolean;
+  /** URLs reachable from other machines on the LAN while enabled. */
+  urls: string[];
+  /** Per-interface bind failures (port busy, interface gone…). */
+  errors: string[];
+  /** The server itself is already bound to a non-loopback host (PJGEN_HOST) — toggle is a no-op. */
+  alreadyExposed: boolean;
+}
+
+/** Live view of the current subscription rate-limit window. */
+export interface QuotaWindowDto {
+  /** Epoch ms when the current window resets (from the stream's rate_limit_event), null if never seen. */
+  resetsAt: number | null;
+  windowType: string | null;
+  tokensInWindow: TokenUsage;
+  /** Median tokens consumed at the last limit hits — null until a limit has been hit at least once. */
+  estimatedCeiling: number | null;
+}
+
+/** Persisted shape of the (single) scheduled token cut. */
+export interface ScheduledCut {
+  /** Epoch ms at which the user wants their tokens available. */
+  targetAt: number;
+  /** Share of tokens to preserve at targetAt; 100 = full window required. */
+  reservePct: number;
+}
+
+export interface ScheduledCutDto extends ScheduledCut {
+  /** True once the cut is actively blocking builds. */
+  binding: boolean;
+  /** reservePct < 100 but the ceiling is unknown — enforced as a full cut. */
+  ceilingUnknown: boolean;
+}
+
+export interface QuotaDto {
+  limitedUntil: number | null;
+  lastHitAt: number | null;
+  matchedPattern: string | null;
+  authOk: boolean;
+  authDetail: string;
+  window: QuotaWindowDto;
+  /** Global pause switch — nothing starts while true (pause-all button or a fired cut). */
+  globalPaused: boolean;
+  scheduledCut: ScheduledCutDto | null;
+}
+
+export interface StatsDto {
+  days: { day: string; tokens: TokenUsage }[];
+  perStep: { stepKey: string; runs: number; totalTokens: number; avgTokens: number }[];
+  perProject: { slug: string; title: string; total: number }[];
+  /** All-time prompt-cache hit rate: cacheRead / (input + cacheRead + cacheCreation). Null when no data. */
+  cacheRate: number | null;
+}
+
+/** State of a generated project's app process (Aperçu tab). */
+export interface AppStateDto {
+  running: boolean;
+  url: string | null;
+  startedAt: number | null;
+  lines: string[];
+}
+
+export interface LogLineDto {
+  seq: number;
+  kind: 'stdout_json' | 'stderr' | 'meta';
+  display: string;
+  createdAt: number;
+}
+
+export interface ArtifactNode {
+  name: string;
+  path: string;
+  type: 'file' | 'dir';
+  size?: number;
+  children?: ArtifactNode[];
+}
+
+export interface QueueSnapshot {
+  activeIds: string[];
+  queuedIds: string[];
+}
+
+// ---------- GitHub integration (gh CLI) ----------
+
+export interface GithubStatusDto {
+  /** gh binary found on the machine. */
+  installed: boolean;
+  /** gh auth status OK. */
+  authOk: boolean;
+  /** Authenticated GitHub login (null when not authenticated). */
+  login: string | null;
+  detail: string;
+}
+
+/** One row of the /github view: remote repos crossed with local projects. */
+export interface GithubRepoView {
+  category: 'remote_only' | 'local_unpublished' | 'linked';
+  /** Local project (absent for remote_only). */
+  projectId?: string;
+  slug?: string;
+  title?: string;
+  projectStatus?: ProjectStatus;
+  /** Remote side (absent for local_unpublished). */
+  nameWithOwner?: string;
+  visibility?: string;
+  updatedAt?: string;
+  url?: string;
+  /** Sync state for linked repos (best-effort; null when fetch failed). */
+  ahead?: number | null;
+  behind?: number | null;
+  autoMode?: boolean;
+}
+
+export type IssueDecision = 'pending' | 'skipped' | 'queued' | 'fixing' | 'fixed' | 'failed' | 'needs_clarification';
+
+export interface IssueDto {
+  id: number;
+  projectId: string;
+  number: number;
+  title: string;
+  body: string;
+  author: string;
+  ghState: 'open' | 'closed';
+  decision: IssueDecision;
+  postedCommentAt: number | null;
+  lastSyncedAt: number;
+  createdAt: number;
+  updatedAt: number;
+}

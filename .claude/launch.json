@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pj-gen-fake",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start:fake", "-w", "server"],
+      "port": 4310
+    },
+    {
+      "name": "pj-gen",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start", "-w", "server"],
+      "port": 4310
+    }
+  ]
+}

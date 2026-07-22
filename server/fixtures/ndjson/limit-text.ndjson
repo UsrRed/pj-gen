@@ -1,0 +1,2 @@
+{"type":"system","subtype":"init","cwd":"/home/ubuntu/pj-workspace/demo","session_id":"12121212-3434-5656-7878-909090909090","tools":["Bash","Read"],"model":"claude-opus-4-8","permissionMode":"bypassPermissions","apiKeySource":"none"}
+{"type":"result","subtype":"error_during_execution","is_error":true,"duration_ms":800,"num_turns":0,"result":"5-hour limit reached ∙ resets 3am","session_id":"12121212-3434-5656-7878-909090909090","total_cost_usd":0,"usage":{"input_tokens":0,"output_tokens":0}}
