@@ -6,6 +6,7 @@ export const DECISION_STYLE: Record<string, string> = {
   skipped: 'bg-zinc-600/15 text-zinc-500',
   queued: 'bg-sky-500/15 text-sky-300',
   fixing: 'bg-indigo-500/15 text-indigo-300',
+  ci_running: 'bg-cyan-500/15 text-cyan-300',
   fixed: 'bg-emerald-500/15 text-emerald-300',
   failed: 'bg-red-500/15 text-red-300',
   needs_clarification: 'bg-amber-500/15 text-amber-300',

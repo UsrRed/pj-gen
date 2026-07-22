@@ -85,7 +85,7 @@ function IssuesSection({ issues, onDecision, busy }: { issues: IssueDto[]; onDec
             {i.title}
           </span>
           <span className="shrink-0 text-zinc-600">@{i.author}</span>
-          {['fixing', 'fixed', 'failed', 'needs_clarification'].includes(i.decision) && (
+          {['fixing', 'ci_running', 'fixed', 'failed', 'needs_clarification'].includes(i.decision) && (
             <Link to={`/projects/${i.projectId}/issues/${i.id}`} className="btn-ghost !px-2 !py-0.5 text-xs">
               📋 {T.issueTrack}
             </Link>

@@ -1,4 +1,6 @@
 import { randomUUID } from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import { MODEL_NAMES } from '@pjgen/shared';
@@ -178,6 +180,26 @@ export function registerProjectRoutes(app: FastifyInstance, c: Container): void 
     c.scheduler.abortProject(id, 'cancel');
     sm.transitionOr409(id, [row.status], 'canceled');
     emitProject(c, id);
+    return { ok: true };
+  });
+
+  /** Permanent deletion of a CANCELED project: DB rows + local workspace (the GitHub repo, if any, is untouched). */
+  app.delete('/api/projects/:id', async (req) => {
+    const { id } = req.params as { id: string };
+    const row = mustGet(c, id);
+    if (row.status !== 'canceled') {
+      throw conflict(`Suppression réservée aux projets annulés (statut actuel « ${row.status} »)`);
+    }
+    await c.appRunner.stop(id);
+    // Only wipe the folder when it lives under the workspace root (always true for
+    // pj-gen-created workspaces — belt and braces against a corrupted DB path).
+    const wsRoot = path.resolve(c.config.workspaceRoot);
+    const wsPath = path.resolve(row.workspace_path);
+    if (wsPath !== wsRoot && wsPath.startsWith(wsRoot + path.sep)) {
+      await fs.promises.rm(wsPath, { recursive: true, force: true });
+    }
+    c.repos.projects.deleteCascade(id);
+    c.bus.emit('project.deleted', id, { id });
     return { ok: true };
   });
 

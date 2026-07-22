@@ -34,6 +34,7 @@ export const api = {
   resume: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}/resume`, { method: 'POST', body: '{}' }),
   cancel: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}/cancel`, { method: 'POST', body: '{}' }),
   retry: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}/retry`, { method: 'POST', body: '{}' }),
+  deleteProject: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}`, { method: 'DELETE', body: '{}' }),
   micro: (id: string, request: string) =>
     req<{ status: 'appended' | 'queued' | 'needs_clarification' | 'failed'; taskKey?: string; question?: string; message?: string }>(
       `/api/projects/${id}/micro`,

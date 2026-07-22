@@ -2,6 +2,7 @@ import type { ChatMessageDto, IssueDto, LogLineDto, MicroRequestDto, ProjectSumm
 
 export const EVENT_TYPES = [
   'project.updated',
+  'project.deleted',
   'queue.updated',
   'quota.updated',
   'chat.message',
@@ -21,6 +22,7 @@ export type EventType = (typeof EVENT_TYPES)[number];
 
 export interface EventPayloads {
   'project.updated': { project: ProjectSummary };
+  'project.deleted': { id: string };
   'queue.updated': QueueSnapshot;
   'quota.updated': { quota: QuotaDto };
   'chat.message': { message: ChatMessageDto };

@@ -82,6 +82,14 @@ export const useStore = create<StoreState>((set, get) => ({
         }));
         break;
       }
+      case 'project.deleted': {
+        const { id } = p as { id: string };
+        set((s) => {
+          const { [id]: _gone, ...rest } = s.projects;
+          return { projects: rest, detail: s.detail && s.detail.id === id ? null : s.detail };
+        });
+        break;
+      }
       case 'queue.updated':
         set({ queue: p as QueueSnapshot });
         break;

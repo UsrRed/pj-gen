@@ -36,6 +36,16 @@ export interface SyncState {
   behind: number | null;
 }
 
+/** Aggregate GitHub Actions state of one commit ('none' = no run registered). */
+export type CiState = 'none' | 'pending' | 'success' | 'failure';
+
+/** Verdict for a set of workflow runs. Pure — unit-tested. */
+export function ciStateOf(runs: { status: string; conclusion: string }[]): CiState {
+  if (!runs.length) return 'none';
+  if (runs.some((r) => r.status !== 'completed')) return 'pending';
+  return runs.every((r) => ['success', 'skipped', 'neutral'].includes(r.conclusion)) ? 'success' : 'failure';
+}
+
 /**
  * GitHub integration via the `gh` CLI. pj-gen never touches a token: gh keeps
  * its own keyring; git identity (UsrRed) is forced through the env on every call.
@@ -325,6 +335,12 @@ export class GithubService {
     ws.appendProgress(project.workspace_path, 'analyse d’import terminée — SPEC/ARCHITECTURE reconstruites, stack détectée');
     bus.emit('artifact.updated', projectId, { path: 'docs/SPEC.md' });
     this.emitProject(projectId);
+  }
+
+  /** GitHub Actions state of a commit (every workflow run on that SHA, aggregated). */
+  async ciStatus(repo: string, sha: string): Promise<CiState> {
+    const out = await this.gh(['run', 'list', '-R', repo, '--commit', sha, '--json', 'status,conclusion', '--limit', '50']);
+    return ciStateOf(JSON.parse(out || '[]') as { status: string; conclusion: string }[]);
   }
 
   /** Post a comment on an issue (used by the auto-issue fixer). */

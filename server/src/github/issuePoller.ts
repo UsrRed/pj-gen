@@ -1,18 +1,37 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import type { CoreDeps } from '../core/deps.js';
 import type { GithubService } from './githubService.js';
 import type { MicroService } from '../micro/microService.js';
 import type { AssetResult } from './issueAssets.js';
-import { toIssueDto, type IssueRow, type ProjectRow } from '../db/repos/index.js';
+import { toIssueDto, type IssueRow, type MicroRequestRow, type ProjectRow } from '../db/repos/index.js';
 
-const AI_MENTION = '_Message généré par IA (pj-gen)._';
+/**
+ * Suffix present in EVERY comment pj-gen posts. The owner and pj-gen share the
+ * same GitHub account (gh login), so login alone cannot tell an AI comment
+ * from a manual one — the marker does.
+ */
+export const AI_MARKER = 'généré par IA (pj-gen)._';
+const AI_MENTION = `_Message ${AI_MARKER}`;
 /** Comment thread bounds fed to the qualification session (untrusted input). */
 const MAX_COMMENTS = 10;
 const MAX_COMMENT_CHARS = 2_000;
+/**
+ * Inconclusive-CI grace period: past this delay the close proceeds with a
+ * caveat instead of blocking the per-project issue queue forever (Actions
+ * disabled, run never registered…).
+ */
+const CI_WAIT_MAX_MS = 30 * 60_000;
 
 export interface IssueComment {
   author: { login: string } | null;
   createdAt: string;
   body: string;
+}
+
+/** True when the comment was posted by pj-gen itself (our login + AI marker). */
+export function isPjGenComment(cm: IssueComment, ourLogin: string | null): boolean {
+  return !!ourLogin && cm.author?.login === ourLogin && (cm.body ?? '').includes(AI_MARKER);
 }
 
 /**
@@ -29,7 +48,7 @@ export function buildIssueRequest(
     .slice(-MAX_COMMENTS)
     .map((cm) => {
       const login = cm.author?.login ?? 'inconnu';
-      const who = ourLogin && login === ourLogin ? 'pj-gen (notre commentaire)' : `@${login}`;
+      const who = isPjGenComment(cm, ourLogin) ? 'pj-gen (notre commentaire)' : `@${login}`;
       return `${who} — ${cm.createdAt} :\n${(cm.body ?? '').slice(0, MAX_COMMENT_CHARS)}`;
     })
     .join('\n\n---\n\n');
@@ -108,8 +127,9 @@ export class IssuePoller {
               await this.syncProject(project, status.login);
               await this.finalizeFixing(project);
               await this.drainQueued(project, status.login);
-            } catch {
-              /* one project failing must not block the others */
+            } catch (err) {
+              // One project failing must not block the others.
+              console.error(`[issuePoller] sync failed for ${project.slug}:`, err);
             }
           }
         }
@@ -133,9 +153,9 @@ export class IssuePoller {
     const { repos } = this.deps;
     const remote = await this.github.listIssues(project.github_repo!);
     for (const it of remote) {
+      // Issues authored by our own login are the owner's: pj-gen never creates
+      // issues, only comments (identified by AI_MARKER), so no loop risk here.
       const author = it.author?.login ?? 'unknown';
-      // Never react to our own issues (comment loops).
-      if (ourLogin && author === ourLogin) continue;
       const { row, changed } = repos.issues.upsert(project.id, {
         number: it.number,
         title: it.title,
@@ -150,7 +170,7 @@ export class IssuePoller {
         // A reply arrived after our clarification comment → requalify.
         const comments = await this.github.issueComments(project.github_repo!, row.number).catch(() => []);
         const replied = comments.some(
-          (cm) => (!ourLogin || cm.author?.login !== ourLogin) && Date.parse(cm.createdAt) > row.posted_comment_at!
+          (cm) => !isPjGenComment(cm, ourLogin) && Date.parse(cm.createdAt) > row.posted_comment_at!
         );
         if (replied) updated = repos.issues.patch(row.id, { decision: this.autoEligible(project, author) ? 'queued' : 'pending' });
       }
@@ -163,7 +183,9 @@ export class IssuePoller {
   private async drainQueued(project: ProjectRow, ourLogin: string | null): Promise<void> {
     const { repos } = this.deps;
     if (this.micro.quotaBlocked()) return;
-    if (repos.issues.byDecision(project.id, ['fixing']).length) return;
+    // One in-flight fix per project — including its CI wait: piling more fixes
+    // on top of a possibly-red repo would compound the breakage.
+    if (repos.issues.byDecision(project.id, ['fixing', 'ci_running']).length) return;
     const next = repos.issues.byDecision(project.id, ['queued'])[0];
     if (!next) return;
     const fresh = repos.projects.byId(project.id)!;
@@ -197,43 +219,92 @@ export class IssuePoller {
     }
   }
 
-  /** Settle 'fixing' issues from their micro request: push (auto) → comment → close → fixed. */
+  /**
+   * Settle 'fixing' issues from their micro request: push (auto) → CI gate
+   * ('ci_running' until the GitHub Actions runs of the pushed commit conclude)
+   * → comment → close → fixed. A red CI leaves the issue OPEN ('failed'): the
+   * issue is never marked done before CI passed. Repos without workflow files
+   * skip the gate (nothing to wait for).
+   */
   private async finalizeFixing(project: ProjectRow): Promise<void> {
     const { repos } = this.deps;
-    for (const issue of repos.issues.byDecision(project.id, ['fixing'])) {
+    for (const issue of repos.issues.byDecision(project.id, ['fixing', 'ci_running'])) {
       const mr = repos.micro.latestForIssue(issue.id);
       if (!mr) continue;
-      if (mr.status === 'failed') {
-        this.emitIssue(repos.issues.patch(issue.id, { decision: 'failed' }));
+
+      if (issue.decision === 'fixing') {
+        if (mr.status === 'failed') {
+          this.emitIssue(repos.issues.patch(issue.id, { decision: 'failed' }));
+          continue;
+        }
+        if (mr.status !== 'done') continue;
+
+        const fresh = repos.projects.byId(project.id)!;
+        const autoPush = fresh.github_auto_mode === 1 && fresh.github_private === 1;
+        const sync = await this.github.syncState(fresh);
+        if (autoPush) {
+          if (['building', 'deploying'].includes(fresh.status)) continue; // retry next tick
+          if (sync.ahead === null || sync.ahead > 0) await this.github.push(project.id);
+        } else if (sync.ahead === null || sync.ahead > 0) {
+          continue; // manual flow: finalize only once the fix commit reached the remote
+        }
+
+        if (!this.hasCiWorkflows(fresh)) {
+          await this.closeFixed(project, issue, mr);
+        } else {
+          // posted_comment_at doubles as the CI wait start (no clarification pending here).
+          this.emitIssue(repos.issues.patch(issue.id, { decision: 'ci_running', posted_comment_at: Date.now() }));
+        }
         continue;
       }
-      if (mr.status !== 'done') continue;
 
+      // ci_running: settle from the Actions runs of the last pushed commit.
       const fresh = repos.projects.byId(project.id)!;
-      const autoPush = fresh.github_auto_mode === 1 && fresh.github_private === 1;
-      if (autoPush) {
-        if (['building', 'deploying'].includes(fresh.status)) continue; // retry next tick
-        await this.github.push(project.id);
-      } else {
-        // Manual flow: finalize only once the fix commit reached the remote.
-        const sync = await this.github.syncState(fresh);
-        if (sync.ahead === null || sync.ahead > 0) continue;
+      const sha = fresh.github_last_push_sha ?? (await this.deps.ws.headSha(fresh.workspace_path));
+      const state = sha ? await this.github.ciStatus(fresh.github_repo!, sha) : 'none';
+      if (state === 'success') {
+        await this.closeFixed(project, issue, mr);
+      } else if (state === 'failure') {
+        await this.github.issueComment(
+          project.github_repo!,
+          issue.number,
+          `La CI a échoué sur le commit \`${(sha ?? '').slice(0, 10)}\` après ce correctif — l'issue reste ouverte.\n\n${AI_MENTION}`
+        );
+        this.emitIssue(repos.issues.patch(issue.id, { decision: 'failed', posted_comment_at: Date.now() }));
+      } else if (Date.now() - (issue.posted_comment_at ?? 0) > CI_WAIT_MAX_MS) {
+        await this.closeFixed(project, issue, mr, 'Statut CI non confirmé (aucun run concluant après 30 min).');
       }
-
-      const task = mr.task_key ? repos.tasks.get(project.id, mr.task_key) : undefined;
-      const sha = task?.commit_sha ? ` (commit \`${task.commit_sha.slice(0, 10)}\`)` : '';
-      const body = [
-        `Correctif appliqué${sha} : **${task?.title ?? mr.request.slice(0, 100)}**`,
-        '',
-        task?.description ? task.description.slice(0, 600) : '',
-        '',
-        `_Correctif généré par IA (pj-gen)._`,
-      ]
-        .filter((l, i, a) => !(l === '' && a[i - 1] === ''))
-        .join('\n');
-      await this.github.issueComment(project.github_repo!, issue.number, body);
-      await this.github.issueClose(project.github_repo!, issue.number);
-      this.emitIssue(repos.issues.patch(issue.id, { decision: 'fixed', posted_comment_at: Date.now() }));
+      // 'pending'/'none' within the grace period: retry next tick.
     }
+  }
+
+  /** The pushed commit is CI-gated only if the workspace carries workflow files. */
+  private hasCiWorkflows(project: ProjectRow): boolean {
+    try {
+      return fs.readdirSync(path.join(project.workspace_path, '.github', 'workflows')).some((f) => /\.ya?ml$/i.test(f));
+    } catch {
+      return false;
+    }
+  }
+
+  /** Comment (what was done + AI marker) → close on GitHub → decision 'fixed'. */
+  private async closeFixed(project: ProjectRow, issue: IssueRow, mr: MicroRequestRow, caveat?: string): Promise<void> {
+    const { repos } = this.deps;
+    const task = mr.task_key ? repos.tasks.get(project.id, mr.task_key) : undefined;
+    const sha = task?.commit_sha ? ` (commit \`${task.commit_sha.slice(0, 10)}\`)` : '';
+    const body = [
+      `Correctif appliqué${sha} : **${task?.title ?? mr.request.slice(0, 100)}**`,
+      '',
+      task?.description ? task.description.slice(0, 600) : '',
+      '',
+      caveat ? `⚠️ ${caveat}` : '',
+      '',
+      `_Correctif ${AI_MARKER}`,
+    ]
+      .filter((l, i, a) => !(l === '' && a[i - 1] === ''))
+      .join('\n');
+    await this.github.issueComment(project.github_repo!, issue.number, body);
+    await this.github.issueClose(project.github_repo!, issue.number);
+    this.emitIssue(repos.issues.patch(issue.id, { decision: 'fixed', posted_comment_at: Date.now() }));
   }
 }

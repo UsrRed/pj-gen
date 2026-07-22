@@ -268,7 +268,7 @@ export interface GithubRepoView {
   autoMode?: boolean;
 }
 
-export type IssueDecision = 'pending' | 'skipped' | 'queued' | 'fixing' | 'fixed' | 'failed' | 'needs_clarification';
+export type IssueDecision = 'pending' | 'skipped' | 'queued' | 'fixing' | 'ci_running' | 'fixed' | 'failed' | 'needs_clarification';
 
 export interface IssueDto {
   id: number;

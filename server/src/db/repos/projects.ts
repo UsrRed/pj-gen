@@ -123,6 +123,22 @@ export class ProjectsRepo {
     this.db.prepare(`UPDATE projects SET ${sets.join(', ')} WHERE id = ?`).run(...values, id);
   }
 
+  /**
+   * Deletes the project and every row that references it. usage_log and
+   * limit_hits are kept on purpose: they are quota telemetry (5h-window gauge,
+   * daily stats), not project data — orphan rows simply drop out of the
+   * per-project stats (JOIN projects).
+   */
+  deleteCascade(id: string): void {
+    this.db.transaction(() => {
+      this.db.prepare('DELETE FROM logs WHERE step_run_id IN (SELECT id FROM step_runs WHERE project_id = ?)').run(id);
+      for (const table of ['step_runs', 'sessions', 'tasks', 'messages', 'micro_requests', 'issues', 'app_runs', 'events']) {
+        this.db.prepare(`DELETE FROM ${table} WHERE project_id = ?`).run(id);
+      }
+      this.db.prepare('DELETE FROM projects WHERE id = ?').run(id);
+    })();
+  }
+
   queueSnapshot(): QueueSnapshot {
     const active = this.db
       .prepare(`SELECT id FROM projects WHERE status IN ('building','deploying') ORDER BY updated_at ASC`)

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { REOPENABLE_STATUSES, type MicroRequestDto } from '@pjgen/shared';
 import { api } from '../api/client.js';
 import { useSse } from '../api/sse.js';
@@ -126,6 +126,7 @@ function MicroPanel({ projectId, requests }: { projectId: string; requests: Micr
 
 export function ProjectPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const detail = useStore((s) => s.detail);
   const setDetail = useStore((s) => s.setDetail);
   const quota = useStore((s) => s.quota);
@@ -281,6 +282,24 @@ export function ProjectPage() {
               disabled={busyAction !== null}
               onConfirm={() => act('cancel', () => api.cancel(id))}
             />
+          )}
+          {detail.status === 'canceled' && (
+            <span title={T.deleteProjectHint}>
+              <ConfirmButton
+                className="btn-danger"
+                label={`🗑 ${T.deleteProject}`}
+                confirmLabel={T.deleteProjectConfirm}
+                busyLabel={T.deleteProjectBusy}
+                busy={busyAction === 'delete'}
+                disabled={busyAction !== null}
+                onConfirm={() =>
+                  act('delete', async () => {
+                    await api.deleteProject(id);
+                    navigate('/');
+                  })
+                }
+              />
+            </span>
           )}
         </div>
       </div>
