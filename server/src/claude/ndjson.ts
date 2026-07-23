@@ -55,6 +55,9 @@ export interface ClaudeEvent {
   structured_result?: unknown;
   // rate_limit_event field (emitted on every request under subscription auth)
   rate_limit_info?: RateLimitInfo;
+  // non-null on assistant/user events emitted by a subagent (Task tool) — they share
+  // the parent's stdout stream, interleaved with the main loop's events
+  parent_tool_use_id?: string | null;
   [k: string]: unknown;
 }
 

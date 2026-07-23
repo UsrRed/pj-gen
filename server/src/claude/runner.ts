@@ -35,9 +35,12 @@ export function createRealRunner(config: Config, caps: Capabilities) {
     let lastAssistantText = '';
     let actualSessionId = spec.sessionId;
     // Logical turns: the stream emits one `assistant` event PER CONTENT BLOCK
-    // (thinking/text/tool_use share the same message.id) — count unique ids, not events.
+    // (thinking/text/tool_use share the same message.id), and PARALLEL SUBAGENTS
+    // (Task tool, parent_tool_use_id != null) interleave their events with the main
+    // loop's — alternating ids defeat any "compare to previous id" scheme. Count
+    // unique main-loop message ids via a Set; subagent events never count.
     let turns = 0;
-    let lastAssistantMsgId: string | null = null;
+    const seenMsgIds = new Set<string>();
     let stderrBuf = '';
     let lastRateLimitInfo: RateLimitInfo | null = null;
 
@@ -94,10 +97,15 @@ export function createRealRunner(config: Config, caps: Capabilities) {
       if (evt.type === 'system' && evt.subtype === 'init' && typeof evt.session_id === 'string') {
         actualSessionId = evt.session_id;
       } else if (evt.type === 'assistant') {
+        // Subagent traffic: not a main-loop turn, and its text must not override
+        // the main loop's last message in the failure haystack.
+        if (evt.parent_tool_use_id) return;
         const msgId = (evt.message as { id?: string } | undefined)?.id ?? null;
-        if (msgId === null || msgId !== lastAssistantMsgId) {
+        if (msgId === null) {
           turns += 1;
-          lastAssistantMsgId = msgId;
+        } else if (!seenMsgIds.has(msgId)) {
+          seenMsgIds.add(msgId);
+          turns += 1;
         }
         const text = assistantTextOf(evt);
         if (text.trim()) lastAssistantText = text;

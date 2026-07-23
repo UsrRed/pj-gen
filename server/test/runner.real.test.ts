@@ -53,6 +53,59 @@ echo '{"type":"result","subtype":"success","is_error":false,"num_turns":3,"resul
     expect(result.usage).toEqual({ inputTokens: 12, outputTokens: 345, cacheCreationTokens: 6789, cacheReadTokens: 10111 });
   });
 
+  it('ignores interleaved subagent events (parent_tool_use_id) in the turn count', async () => {
+    const base = tmpDir('runner');
+    // Post-mortem ia-play: 2 parallel subagents interleave 40 assistant events with
+    // ALTERNATING message ids in the main stream. A "compare to previous id" counter
+    // sees 40+ turns; the correct count is the 3 main-loop turns.
+    const bin = makeFakeClaude(
+      base,
+      'claude-subagents',
+      `
+echo '{"type":"system","subtype":"init","session_id":"s-4","model":"m"}'
+echo '{"type":"assistant","message":{"id":"msg_main_1","content":[{"type":"text","text":"lance les audits"}]}}'
+i=0
+while [ $i -lt 20 ]; do
+  i=$((i+1))
+  echo "{\\"type\\":\\"assistant\\",\\"parent_tool_use_id\\":\\"toolu_A\\",\\"message\\":{\\"id\\":\\"msg_a_$i\\",\\"content\\":[{\\"type\\":\\"text\\",\\"text\\":\\"sub A $i\\"}]}}"
+  echo "{\\"type\\":\\"assistant\\",\\"parent_tool_use_id\\":\\"toolu_B\\",\\"message\\":{\\"id\\":\\"msg_b_$i\\",\\"content\\":[{\\"type\\":\\"text\\",\\"text\\":\\"sub B $i\\"}]}}"
+done
+echo '{"type":"assistant","message":{"id":"msg_main_2","content":[{"type":"text","text":"synthèse"}]}}'
+echo '{"type":"assistant","message":{"id":"msg_main_3","content":[{"type":"text","text":"verdict"}]}}'
+echo '{"type":"result","subtype":"success","is_error":false,"num_turns":3,"result":"audit ok","total_cost_usd":0}'
+`
+    );
+    const config = testConfig(base, { claudeBin: bin, fakeCli: false });
+    const run = createRealRunner(config, FAKE_CAPABILITIES);
+    const result = await run(specFor(base, 5)).result;
+    expect(result.outcome).toBe('success');
+    expect(result.resultText).toBe('audit ok');
+  });
+
+  it('counts non-consecutive re-emissions of a main-loop message id only once', async () => {
+    const base = tmpDir('runner');
+    // Main-loop blocks of the same message separated by other traffic must not
+    // re-count (Set semantics, not "different from previous id").
+    const bin = makeFakeClaude(
+      base,
+      'claude-reemit',
+      `
+echo '{"type":"system","subtype":"init","session_id":"s-5","model":"m"}'
+for t in 1 2 3; do
+  echo "{\\"type\\":\\"assistant\\",\\"message\\":{\\"id\\":\\"msg_$t\\",\\"content\\":[{\\"type\\":\\"text\\",\\"text\\":\\"turn $t\\"}]}}"
+done
+for t in 1 2 3; do
+  echo "{\\"type\\":\\"assistant\\",\\"message\\":{\\"id\\":\\"msg_$t\\",\\"content\\":[{\\"type\\":\\"tool_use\\",\\"name\\":\\"Bash\\",\\"input\\":{}}]}}"
+done
+echo '{"type":"result","subtype":"success","is_error":false,"num_turns":3,"result":"fini","total_cost_usd":0}'
+`
+    );
+    const config = testConfig(base, { claudeBin: bin, fakeCli: false });
+    const run = createRealRunner(config, FAKE_CAPABILITIES);
+    const result = await run(specFor(base, 4)).result;
+    expect(result.outcome).toBe('success');
+  });
+
   it('kills a runaway session past the logical-turn cap and classifies it as timeout', async () => {
     const base = tmpDir('runner');
     const bin = makeFakeClaude(
