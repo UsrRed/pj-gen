@@ -291,6 +291,16 @@ export function resumePrompt(): string {
 Ne recommence pas ce qui est déjà fait.`;
 }
 
+/** Landing prompt after a cap kill: same session resumed with a tiny budget, sole goal = commit a clean state. */
+export function wrapUpPrompt(testCmd?: string): string {
+  const tests = testCmd?.trim() ? `« ${testCmd} »` : 'les tests du projet';
+  return `STOP — le superviseur a interrompu ta session: budget de tours/durée épuisé. Il te reste un TOUT PETIT budget pour atterrir. N'explore plus rien, ne commence rien de nouveau.
+1. \`git status\` + \`git diff --stat\` pour constater l'état en cours.
+2. Termine ou annule proprement ce qui est à moitié fait — choisis le plus court des deux.
+3. ${tests} doivent passer.
+4. Committe l'état propre et termine immédiatement. Un résultat partiel committé vaut mieux qu'un résultat parfait perdu.`;
+}
+
 export function testHardeningPrompt(stack: StackInfo): string {
   return `Durcis la suite de tests de ce projet.
 - Lis docs/SPEC.md pour identifier les cas limites importants (entrées invalides, bords, erreurs).
@@ -310,12 +320,14 @@ export function reviewFixPrompt(stack: StackInfo): string {
 }
 
 export function polishPrompt(stack: StackInfo): string {
-  return `Passe de finition de l'expérience utilisateur. Lis docs/SPEC.md (objectif, éléments différenciants, utilisateurs).
-- Interface web/graphique: mise en page soignée, thème cohérent (couleurs, typographie, espacements), états vides/chargement/erreur, feedback des actions — le résultat doit avoir l'air FINI, pas d'une page blanche par défaut. Lance l'app (« ${stack.run_cmd || '—'} ») pour constater le rendu réel.
+  return `Passe de finition de l'expérience utilisateur — BORNÉE. Lis docs/SPEC.md (objectif, éléments différenciants, utilisateurs).
+- Choisis les 3 à 5 améliorations LES PLUS VISIBLES pour l'utilisateur et traite-les UNE PAR UNE: un commit \`style: <sujet>\` par amélioration, puis arrête-toi. Pas de passe exhaustive, pas de refonte.
+- Interface web/graphique: mise en page soignée, thème cohérent (couleurs, typographie, espacements), états vides/chargement/erreur, feedback des actions — le résultat doit avoir l'air FINI, pas d'une page blanche par défaut.
+- Environnement HEADLESS: aucun navigateur ni outil de capture d'écran n'est disponible — n'en cherche pas, n'en installe pas. Juge le rendu par le code, les CSS et la maquette docs/design/mockup.html si elle existe. Tu peux lancer l'app (« ${stack.run_cmd || '—'} ») pour vérifier qu'elle démarre sans erreur, rien de plus.
 - CLI/API: sorties formatées et lisibles, messages d'aide et d'erreur clairs.
 - Reste fidèle à la SPEC: n'ajoute pas de fonctionnalité, améliore la présentation de l'existant.
 - docs/INTERFACES.md = contrats de référence: ne change pas une interface pour du cosmétique; si inévitable, tiens le fichier à jour.
-- « ${stack.test_cmd} » doit passer. Termine par un commit \`style: ux polish pass\`.`;
+- « ${stack.test_cmd} » doit passer avant chaque commit. Dernier commit: \`style: ux polish pass\`.`;
 }
 
 export function featureAuditPrompt(hasDesign = false): string {

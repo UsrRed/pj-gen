@@ -14,7 +14,7 @@ export const DEFAULT_STEP_CAPS: Record<string, StepCap> = {
   task_breakdown: { turns: 8, timeoutMin: 8 },
   scaffold: { turns: 60, timeoutMin: 20 },
   implement_task: { turns: 80, timeoutMin: 30 },
-  polish: { turns: 60, timeoutMin: 25 },
+  polish: { turns: 80, timeoutMin: 25 },
   test_hardening: { turns: 50, timeoutMin: 20 },
   feature_check: { turns: 60, timeoutMin: 25 },
   review_fix: { turns: 60, timeoutMin: 30 },

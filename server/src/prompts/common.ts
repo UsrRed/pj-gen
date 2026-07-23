@@ -10,17 +10,16 @@ export const NAVIGATION_RULES = `Navigation: docs/ARCHITECTURE.md est la CARTE d
 
 export const PROCESS_HYGIENE_RULES = `Processus: n'utilise JAMAIS pkill, killall ni aucun kill par motif de nom (l'orchestrateur qui t'a lancé tourne sur cette machine via "tsx src/index.ts" — un pkill -f tsx/node/server/vite le tue, ainsi que les autres builds). Pour arrêter un process que tu as lancé: mémorise son PID ($!) et fais kill $PID. Pour libérer un port: kill $(lsof -ti:PORT). Lance tes serveurs de dev sur des ports dédiés et arrête-les par PID ou par port, jamais par nom.`;
 
-/** Appended (via --append-system-prompt) to every build/deploy session. */
-export function commonSystemPrompt(): string {
-  return [
-    'Règles impératives:',
-    `1. ${ATTRIBUTION_RULES}`,
-    `2. ${TOKEN_ECONOMY_RULES}`,
-    `3. ${LANGUAGE_RULES}`,
-    `4. ${SCOPE_RULES}`,
-    `5. ${PROCESS_HYGIENE_RULES}`,
-    `6. ${NAVIGATION_RULES}`,
-  ].join('\n');
+export function budgetRule(caps: { maxTurns: number; timeoutMs: number }): string {
+  const minutes = Math.round(caps.timeoutMs / 60_000);
+  return `Budget: cette session est plafonnée à ~${caps.maxTurns} tours et ${minutes} minutes par un superviseur qui la coupe NET au-delà (travail non committé perdu). Planifie pour finir AVANT: committe tôt et souvent (un commit par unité cohérente), garde ~20 % de marge pour stabiliser et committer, et ne lance pas une exploration ou un chantier que ce budget ne permet pas de terminer.`;
+}
+
+/** Appended (via --append-system-prompt) to every build/deploy session; pass the step caps for tool sessions so the model knows its budget. */
+export function commonSystemPrompt(caps?: { maxTurns: number; timeoutMs: number }): string {
+  const rules = [ATTRIBUTION_RULES, TOKEN_ECONOMY_RULES, LANGUAGE_RULES, SCOPE_RULES, PROCESS_HYGIENE_RULES, NAVIGATION_RULES];
+  if (caps) rules.push(budgetRule(caps));
+  return ['Règles impératives:', ...rules.map((r, i) => `${i + 1}. ${r}`)].join('\n');
 }
 
 export function generatedClaudeMd(title: string): string {

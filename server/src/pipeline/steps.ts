@@ -26,6 +26,7 @@ import {
   scaffoldPrompt,
   implementTaskPrompt,
   resumePrompt,
+  wrapUpPrompt,
   testHardeningPrompt,
   reviewFixPrompt,
   docsPrompt,
@@ -140,6 +141,12 @@ async function runGenerationStep<T>(ctx: StepCtx, o: GenOpts<T>): Promise<StepFl
 
 // ---------- tool steps (full autonomy inside the workspace) ----------
 
+/**
+ * Landing run after a cap kill (see runToolStep): the timed-out session is resumed
+ * with wrapUpPrompt() and this tiny budget — its only job is to commit a clean state.
+ */
+export const WRAP_UP_CAPS = { maxTurns: 20, timeoutMs: 10 * 60 * 1000 };
+
 interface ToolOpts {
   stepKey: StepKey;
   taskKey?: string | null;
@@ -164,6 +171,9 @@ async function runToolStep(ctx: StepCtx, o: ToolOpts): Promise<StepFlow> {
   let failureTail: string | undefined;
   let lastSessionId: string | null = null;
   let lastMessage = 'échec';
+  // Session killed at the turn/duration cap: the next attempt resumes it with a small
+  // "land now, commit what you have" budget instead of restarting the exploration from scratch.
+  let wrapUpSessionId: string | null = null;
 
   while (attempt <= o.maxAttempts) {
     if (ctx.signal.aborted) return { status: 'halted', mode: haltMode(ctx.signal) };
@@ -171,7 +181,12 @@ async function runToolStep(ctx: StepCtx, o: ToolOpts): Promise<StepFlow> {
     const headBefore = await ws.headSha(ctx.workspace);
     let session: ExecSession;
     let prompt: string;
-    if (resumeSessionId) {
+    const isWrapUp = wrapUpSessionId !== null;
+    if (isWrapUp) {
+      session = { id: wrapUpSessionId!, resume: true, kind: 'step' };
+      prompt = wrapUpPrompt(ctx.getStack()?.test_cmd);
+      wrapUpSessionId = null;
+    } else if (resumeSessionId) {
       session = { id: resumeSessionId, resume: true, kind: 'step' };
       prompt = resumePrompt();
     } else if (attempt >= 3 && lastSessionId) {
@@ -182,6 +197,8 @@ async function runToolStep(ctx: StepCtx, o: ToolOpts): Promise<StepFlow> {
       prompt = o.buildPrompt(attempt, failureTail);
     }
 
+    const capKey = o.capKey ?? o.stepKey;
+    const caps = isWrapUp ? WRAP_UP_CAPS : capsFor(repos, capKey);
     const { result } = await executeClaudeRun(deps, {
       projectId: ctx.projectId,
       stepKey: o.stepKey,
@@ -191,7 +208,11 @@ async function runToolStep(ctx: StepCtx, o: ToolOpts): Promise<StepFlow> {
       session,
       signal: ctx.signal,
       spec: {
-        ...baseSpec(ctx, o.capKey ?? o.stepKey),
+        ...baseSpec(ctx, capKey),
+        maxTurns: caps.maxTurns,
+        timeoutMs: caps.timeoutMs,
+        // Announce the budget so the session plans its landing instead of dying at the cap.
+        appendSystemPrompt: commonSystemPrompt(caps),
         prompt,
         tools: 'default',
       },
@@ -221,6 +242,9 @@ async function runToolStep(ctx: StepCtx, o: ToolOpts): Promise<StepFlow> {
     failureTail = f.message;
     lastSessionId = session.id;
     resumeSessionId = null;
+    // Cap kill on a regular run → the next attempt is a wrap-up resume of the same
+    // session (a wrap-up that dies at its own cap falls back to a fresh/fork restart).
+    if (f.kind === 'timeout' && !isWrapUp) wrapUpSessionId = session.id;
     attempt += 1;
   }
   return { status: 'failed', message: lastMessage };
@@ -536,13 +560,20 @@ export async function stepPolish(ctx: StepCtx): Promise<StepFlow> {
   const stack = ctx.getStack();
   if (!stack) return { status: 'failed', message: 'stack inconnue' };
   const designNote = ctx.deps.ws.hasDesignReference(ctx.workspace) ? `\n\n${DESIGN_NOTE_TOOL}` : '';
-  return runToolStep(ctx, {
+  const flow = await runToolStep(ctx, {
     stepKey: 'polish',
     buildPrompt: (attempt, tail) => polishPrompt(stack) + designNote + (tail ? `\n\nATTENTION — échec précédent:\n\`\`\`\n${tail}\n\`\`\`` : ''),
     verifyKinds: ['test', 'build'],
     requireNewCommit: false,
-    maxAttempts: 2,
+    maxAttempts: 3,
   });
+  // Cosmetic pass: NON-BLOCKING. A polish failure must never sink the whole build —
+  // feature_check remains the SPEC/UX conformity gate (post-mortem Red Cactus).
+  if (flow.status === 'failed') {
+    ctx.deps.ws.appendProgress(ctx.workspace, `polish incomplet (non bloquant): ${flow.message.slice(0, 300)}`);
+    return { status: 'ok' };
+  }
+  return flow;
 }
 
 const FEATURE_FIX_ROUNDS = 2;
@@ -571,6 +602,7 @@ export async function stepFeatureCheck(ctx: StepCtx): Promise<StepFlow> {
       signal: ctx.signal,
       spec: {
         ...baseSpec(ctx, 'feature_check'),
+        appendSystemPrompt: commonSystemPrompt(capsFor(ctx.deps.repos, 'feature_check')),
         prompt: featureAuditPrompt(ws.hasDesignReference(ctx.workspace)),
         tools: 'default',
         jsonSchema: FEATURE_AUDIT_JSON_SCHEMA,
