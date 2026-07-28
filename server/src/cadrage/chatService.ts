@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { CoreDeps } from '../core/deps.js';
-import { toMessageDto } from '../db/repos/index.js';
+import { toAccessDto, toMessageDto } from '../db/repos/index.js';
 import type { MessageRow } from '../db/repos/index.js';
 import { CADRAGE_JSON_SCHEMA, CadrageReplyZ, extractStructured } from '../prompts/schemas.js';
 import { CADRAGE_SYSTEM, revisionCadrageContext } from '../prompts/steps.js';
@@ -83,7 +83,7 @@ export class ChatService {
     }
 
     const { model, fallbackModel } = resolveModel(repos, project, 'cadrage');
-    const caps = capsFor(repos, 'cadrage');
+    const caps = capsFor(repos, 'cadrage', project);
     const settings = repos.settings.getAll();
 
     // Improvement iterations: the fresh cadrage session needs the current SPEC as context.
@@ -117,16 +117,51 @@ export class ChatService {
       const parsed = extractStructured(CadrageReplyZ, result.structured, result.resultText);
       const reply = parsed.ok
         ? parsed.data
-        : { reply_markdown: result.resultText || '(réponse vide)', open_questions: [], ready_for_spec: false };
+        : {
+            reply_markdown: result.resultText || '(réponse vide)',
+            open_questions: [],
+            ready_for_spec: false,
+            suggested_size: '' as const,
+            size_rationale: '',
+            access_requirements: [],
+          };
       const row = repos.messages.insert(
         projectId,
         'cadrage',
         'assistant',
         reply.reply_markdown,
-        { open_questions: reply.open_questions, ready_for_spec: reply.ready_for_spec },
+        {
+          open_questions: reply.open_questions,
+          ready_for_spec: reply.ready_for_spec,
+          suggested_size: reply.suggested_size || undefined,
+          size_rationale: reply.size_rationale || undefined,
+        },
         session.id
       );
       this.emitMessage(row);
+      // The model restates the full inventory each turn; the repo keeps whatever the
+      // operator has already answered.
+      if (reply.access_requirements?.length) {
+        repos.access.upsertFromCadrage(
+          projectId,
+          reply.access_requirements.map((a) => ({
+            key: a.key,
+            kind: a.kind,
+            label: a.label,
+            required: a.required,
+            why: a.why,
+            secretEnvVars: a.env_vars,
+          }))
+        );
+        this.deps.bus.emit('access.updated', projectId, { items: repos.access.list(projectId).map(toAccessDto) });
+      }
+
+      // The cadrage proposal fills in the tier, but never overrules an explicit operator choice.
+      if (reply.suggested_size && project.size_source !== 'user') {
+        repos.projects.patch(projectId, { size: reply.suggested_size, size_source: 'cadrage' });
+        const updated = repos.projects.byId(projectId);
+        if (updated) this.deps.bus.emit('project.updated', projectId, { project: repos.projects.summary(updated) });
+      }
       return;
     }
 

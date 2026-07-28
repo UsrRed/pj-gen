@@ -53,6 +53,9 @@ export const DEFAULT_STEP_MODELS: Record<string, ModelName> = {
 
 export const DEFAULT_SETTINGS: SettingsDto = {
   maxConcurrentBuilds: 2,
+  maxConcurrentSessions: 4,
+  // Ships at 1: parallelism is opt-in until measured against the timing baseline.
+  taskParallelism: 1,
   defaultModel: 'opus',
   autoResumeOnBoot: true,
   skipTestHardening: false,
@@ -65,6 +68,7 @@ export const DEFAULT_SETTINGS: SettingsDto = {
   notifyUrl: '',
   notifyEvents: { deployReady: true, buildFailed: true, quotaResumed: true },
   exposeLan: false,
+  sizeProfiles: {},
 };
 
 export class SettingsRepo {
@@ -84,6 +88,8 @@ export class SettingsRepo {
     };
     return {
       maxConcurrentBuilds: Math.max(1, Math.min(4, parse('max_concurrent_builds', DEFAULT_SETTINGS.maxConcurrentBuilds))),
+      maxConcurrentSessions: Math.max(1, Math.min(8, parse('max_concurrent_sessions', DEFAULT_SETTINGS.maxConcurrentSessions))),
+      taskParallelism: Math.max(1, Math.min(4, parse('task_parallelism', DEFAULT_SETTINGS.taskParallelism))),
       defaultModel: parse('default_model', DEFAULT_SETTINGS.defaultModel),
       autoResumeOnBoot: parse('auto_resume_on_boot', DEFAULT_SETTINGS.autoResumeOnBoot),
       skipTestHardening: parse('skip_test_hardening', DEFAULT_SETTINGS.skipTestHardening),
@@ -96,6 +102,7 @@ export class SettingsRepo {
       notifyUrl: parse('notify_url', DEFAULT_SETTINGS.notifyUrl),
       notifyEvents: { ...DEFAULT_SETTINGS.notifyEvents, ...parse('notify_events', {}) },
       exposeLan: parse('expose_lan', DEFAULT_SETTINGS.exposeLan),
+      sizeProfiles: parse('size_profiles', DEFAULT_SETTINGS.sizeProfiles),
     };
   }
 
@@ -105,6 +112,8 @@ export class SettingsRepo {
     );
     const mapping: [keyof SettingsDto, string][] = [
       ['maxConcurrentBuilds', 'max_concurrent_builds'],
+      ['maxConcurrentSessions', 'max_concurrent_sessions'],
+      ['taskParallelism', 'task_parallelism'],
       ['defaultModel', 'default_model'],
       ['autoResumeOnBoot', 'auto_resume_on_boot'],
       ['skipTestHardening', 'skip_test_hardening'],
@@ -117,6 +126,7 @@ export class SettingsRepo {
       ['notifyUrl', 'notify_url'],
       ['notifyEvents', 'notify_events'],
       ['exposeLan', 'expose_lan'],
+      ['sizeProfiles', 'size_profiles'],
     ];
     this.db.transaction(() => {
       for (const [prop, key] of mapping) {
@@ -124,6 +134,21 @@ export class SettingsRepo {
       }
     })();
     return this.getAll();
+  }
+
+  /**
+   * Caps the operator actually persisted, WITHOUT the DEFAULT_STEP_CAPS merge that
+   * getAll() applies. A size profile scales the built-in defaults but must never
+   * override a value the operator typed by hand — and after the merge the two are
+   * indistinguishable.
+   */
+  rawStepCaps(): Partial<Record<string, StepCap>> {
+    return this.getRaw<Partial<Record<string, StepCap>>>('step_caps') ?? {};
+  }
+
+  /** Same rationale as rawStepCaps, for the per-step model routing. */
+  rawStepModels(): Partial<Record<string, ModelName>> {
+    return this.getRaw<Partial<Record<string, ModelName>>>('step_models') ?? {};
   }
 
   // Runtime control state (not part of SettingsDto: mutations must go through the

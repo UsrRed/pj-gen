@@ -1,4 +1,4 @@
-import type { StackInfo, StepKey, TaskDto } from '@pjgen/shared';
+import { DEFAULT_TASK_PHASE, phaseRank, type StackInfo, type StepKey, type TaskDto } from '@pjgen/shared';
 import type { z } from 'zod';
 import type { CoreDeps } from '../core/deps.js';
 import { executeClaudeRun, newSessionId, type ExecSession } from './stepRunner.js';
@@ -38,10 +38,15 @@ import {
   designBenchmarkPrompt,
   designExcerptBlock,
   DESIGN_NOTE_TOOL,
+  WORKTREE_RULES,
 } from '../prompts/steps.js';
 import { commonSystemPrompt } from '../prompts/common.js';
 import { auditCommits } from './attribution.js';
-import { toTaskDto } from '../db/repos/index.js';
+import { profileFor } from './sizing.js';
+import { accessBlock } from '../prompts/access.js';
+import { blockingEdges, dagWidth, overlappingPairs, pickBatch, readySet } from './taskBatch.js';
+import { releaseAll } from '../core/sessionPool.js';
+import { toAccessDto, toTaskDto } from '../db/repos/index.js';
 
 export type StepFlow =
   | { status: 'ok' }
@@ -62,14 +67,14 @@ export function haltMode(signal: AbortSignal): 'pause' | 'cancel' {
   return signal.reason === 'pause' ? 'pause' : 'cancel';
 }
 
-function baseSpec(ctx: StepCtx, stepKey: string) {
+function baseSpec(ctx: StepCtx, stepKey: string, workRoot?: string) {
   const { repos } = ctx.deps;
   const project = repos.projects.byId(ctx.projectId)!;
   const { model, fallbackModel } = resolveModel(repos, project, stepKey);
-  const caps = capsFor(repos, stepKey);
+  const caps = capsFor(repos, stepKey, project);
   const settings = repos.settings.getAll();
   return {
-    cwd: ctx.workspace,
+    cwd: workRoot ?? ctx.workspace,
     model,
     fallbackModel,
     appendSystemPrompt: commonSystemPrompt(),
@@ -155,12 +160,16 @@ interface ToolOpts {
   verifyKinds: VerifyKind[];
   requireNewCommit: boolean;
   maxAttempts: number;
+  /** Directory the session works in; defaults to the project workspace. A parallel task
+   *  passes its own git worktree so commit detection and verification target that tree. */
+  workRoot?: string;
 }
 
 async function runToolStep(ctx: StepCtx, o: ToolOpts): Promise<StepFlow> {
   const { deps } = ctx;
   const { repos, ws, config } = deps;
   const taskKey = o.taskKey ?? null;
+  const workRoot = o.workRoot ?? ctx.workspace;
 
   // Resume a session interrupted by the usage limit (or a crash) when one exists.
   const paused = repos.stepRuns.latestPaused(ctx.projectId, o.stepKey, taskKey);
@@ -178,7 +187,7 @@ async function runToolStep(ctx: StepCtx, o: ToolOpts): Promise<StepFlow> {
   while (attempt <= o.maxAttempts) {
     if (ctx.signal.aborted) return { status: 'halted', mode: haltMode(ctx.signal) };
 
-    const headBefore = await ws.headSha(ctx.workspace);
+    const headBefore = await ws.headSha(workRoot);
     let session: ExecSession;
     let prompt: string;
     const isWrapUp = wrapUpSessionId !== null;
@@ -198,7 +207,7 @@ async function runToolStep(ctx: StepCtx, o: ToolOpts): Promise<StepFlow> {
     }
 
     const capKey = o.capKey ?? o.stepKey;
-    const caps = isWrapUp ? WRAP_UP_CAPS : capsFor(repos, capKey);
+    const caps = isWrapUp ? WRAP_UP_CAPS : capsFor(repos, capKey, repos.projects.byId(ctx.projectId));
     const { result } = await executeClaudeRun(deps, {
       projectId: ctx.projectId,
       stepKey: o.stepKey,
@@ -208,7 +217,7 @@ async function runToolStep(ctx: StepCtx, o: ToolOpts): Promise<StepFlow> {
       session,
       signal: ctx.signal,
       spec: {
-        ...baseSpec(ctx, capKey),
+        ...baseSpec(ctx, capKey, workRoot),
         maxTurns: caps.maxTurns,
         timeoutMs: caps.timeoutMs,
         // Announce the budget so the session plans its landing instead of dying at the cap.
@@ -218,10 +227,10 @@ async function runToolStep(ctx: StepCtx, o: ToolOpts): Promise<StepFlow> {
       },
       validate: async () => {
         if (o.requireNewCommit && !config.fakeCli) {
-          const hasNew = await ws.hasNewCommitSince(ctx.workspace, headBefore);
+          const hasNew = await ws.hasNewCommitSince(workRoot, headBefore);
           if (!hasNew) return { ok: false, kind: 'verify_failed', message: 'aucun nouveau commit créé par la session' };
         }
-        const v = await verifyStack(config, ctx.workspace, ctx.getStack(), o.verifyKinds);
+        const v = await verifyStack(config, workRoot, ctx.getStack(), o.verifyKinds);
         if (!v.ok) return { ok: false, kind: 'verify_failed', message: `${v.label}\n${v.tail}`.slice(-1800) };
         return { ok: true };
       },
@@ -329,9 +338,15 @@ export async function stepArchitecture(ctx: StepCtx): Promise<StepFlow> {
   const project = repos.projects.byId(ctx.projectId)!;
   const existingArch = (project.iteration ?? 1) > 1 ? ws.readFile(ctx.workspace, 'docs/ARCHITECTURE.md') : null;
   const existingInterfaces = existingArch ? ws.readFile(ctx.workspace, 'docs/INTERFACES.md') : null;
-  let basePrompt = existingArch
-    ? archUpdatePrompt(spec.content, existingArch.content, existingInterfaces?.content)
-    : archPrompt(spec.content);
+  // The tier decides how much machinery the architecture is allowed to introduce.
+  const scope = profileFor(repos, project).scopeGuidance;
+  // The architecture used to be designed blind and discover the deploy target eleven
+  // steps later; knowing "VPS Debian via SSH, /srv/app" changes the stack and the config strategy.
+  const access = accessBlock(repos.access.list(ctx.projectId).map(toAccessDto));
+  let basePrompt =
+    (existingArch
+      ? archUpdatePrompt(spec.content, existingArch.content, existingInterfaces?.content, scope)
+      : archPrompt(spec.content, scope)) + access;
   // Mockup handed off (e.g. Claude Design): the architecture must plan for it.
   if (ws.hasDesignReference(ctx.workspace)) {
     const mockup = ws.readFile(ctx.workspace, 'docs/design/mockup.html') ?? ws.readFile(ctx.workspace, 'docs/design/Mockup.jsx') ?? ws.readFile(ctx.workspace, 'docs/design/NOTES.md');
@@ -356,18 +371,49 @@ export async function stepArchitecture(ctx: StepCtx): Promise<StepFlow> {
   });
 }
 
-function checkTaskDag(tasks: { task_key: string; depends_on: string[] }[]): string | null {
+/**
+ * Rejects duplicates, unknown dependencies and cycles — but NOT a dependency listed later.
+ * Requiring "earlier in the list" forced every breakdown to be linearisable in the given
+ * order, so the graph could never express parallel branches. Acyclicity is the only
+ * ordering property that actually matters.
+ */
+export function checkTaskDag(tasks: { task_key: string; depends_on: string[]; after?: string[]; phase?: string }[]): string | null {
   const keys = new Set(tasks.map((t) => t.task_key));
   if (keys.size !== tasks.length) return 'clés de tâches dupliquées';
-  const seen = new Set<string>();
+
+  // Both edge kinds are validated and both count towards acyclicity: an ordering
+  // relation that loops back would deadlock the scheduler just as surely as a contract one.
+  const edgesOf = (t: (typeof tasks)[number]) => [...new Set([...t.depends_on, ...(t.after ?? [])])];
+  const byKey = new Map(tasks.map((t) => [t.task_key, t]));
+
   for (const t of tasks) {
-    for (const dep of t.depends_on) {
+    for (const dep of edgesOf(t)) {
+      if (dep === t.task_key) return `tâche dépendante d'elle-même: ${t.task_key}`;
       if (!keys.has(dep)) return `dépendance inconnue: ${t.task_key} → ${dep}`;
-      if (!seen.has(dep)) return `dépendance non antérieure (ordre invalide): ${t.task_key} → ${dep}`;
     }
-    seen.add(t.task_key);
+    // An earlier phase may never wait on a later one: the phase barrier would deadlock it.
+    for (const dep of edgesOf(t)) {
+      if (phaseRank(byKey.get(dep)!.phase) > phaseRank(t.phase)) {
+        return `relation contraire aux phases: ${t.task_key} (${t.phase ?? DEFAULT_TASK_PHASE}) dépend de ${dep} (${byKey.get(dep)!.phase})`;
+      }
+    }
   }
-  return null;
+
+  // Kahn: if anything remains un-emitted, a cycle remains.
+  const indegree = new Map(tasks.map((t) => [t.task_key, edgesOf(t).length]));
+  const queue = tasks.filter((t) => indegree.get(t.task_key) === 0).map((t) => t.task_key);
+  let emitted = 0;
+  while (queue.length) {
+    const key = queue.shift()!;
+    emitted += 1;
+    for (const t of tasks) {
+      if (!edgesOf(t).includes(key)) continue;
+      const d = indegree.get(t.task_key)! - 1;
+      indegree.set(t.task_key, d);
+      if (d === 0) queue.push(t.task_key);
+    }
+  }
+  return emitted === tasks.length ? null : 'cycle de dépendances entre tâches';
 }
 
 export function writeTasksJson(deps: CoreDeps, projectId: string, workspace: string): void {
@@ -385,12 +431,16 @@ export function nextTaskNumber(existingKeys: string[]): number {
 }
 
 /** Append-mode DAG check: deps may target existing (done) tasks or previous new tasks. */
-function checkTaskDagAppend(tasks: { task_key: string; depends_on: string[] }[], existingKeys: Set<string>): string | null {
+function checkTaskDagAppend(
+  tasks: { task_key: string; depends_on: string[]; after?: string[] }[],
+  existingKeys: Set<string>
+): string | null {
   const newKeys = new Set(tasks.map((t) => t.task_key));
   if (newKeys.size !== tasks.length) return 'clés de tâches dupliquées';
   const seen = new Set<string>();
   for (const t of tasks) {
-    for (const dep of t.depends_on) {
+    // Ordering relations may target existing (already done) tasks too.
+    for (const dep of [...t.depends_on, ...(t.after ?? [])]) {
       if (!existingKeys.has(dep) && !seen.has(dep)) return `dépendance invalide: ${t.task_key} → ${dep}`;
     }
     seen.add(t.task_key);
@@ -413,6 +463,21 @@ export async function stepTaskBreakdown(ctx: StepCtx): Promise<StepFlow> {
   const existingSummary = existing.map((t) => `${t.task_key} [${t.status}] ${t.title}`).join('\n');
 
   const finish = async () => {
+    // Reported, never rejected: pickBatch already protects execution, and a genuinely
+    // linear product is legitimate — failing the step over it would be worse.
+    const dtos = repos.tasks.list(ctx.projectId).map(toTaskDto);
+    const overlaps = overlappingPairs(dtos);
+    if (overlaps.length) {
+      ws.appendProgress(
+        ctx.workspace,
+        `découpage: ${overlaps.length} paire(s) parallélisables aux écritures qui se recouvrent (${overlaps
+          .slice(0, 5)
+          .map(([a, b]) => `${a}/${b}`)
+          .join(', ')}) — elles seront sérialisées`
+      );
+    } else if (dtos.length >= 6 && dagWidth(dtos) === 1) {
+      ws.appendProgress(ctx.workspace, 'découpage strictement linéaire — aucune parallélisation possible');
+    }
     writeTasksJson(ctx.deps, ctx.projectId, ctx.workspace);
     await ws.commitAll(ctx.workspace, isRevision ? 'docs: revision task breakdown' : 'docs: task breakdown');
     bus.emit('artifact.updated', ctx.projectId, { path: 'docs/tasks.json' });
@@ -420,12 +485,17 @@ export async function stepTaskBreakdown(ctx: StepCtx): Promise<StepFlow> {
     bus.emit('project.updated', ctx.projectId, { project: repos.projects.summary(row) });
   };
 
+  // Task budget and scope discipline both come from the size tier: a small project that
+  // gets 20 tasks is a small project that takes all night.
+  const profile = profileFor(repos, repos.projects.byId(ctx.projectId));
+
   return runGenerationStep(ctx, {
     stepKey: 'task_breakdown',
     buildPrompt: (lastError) =>
       (isRevision
-        ? breakdownRevisionPrompt(spec.content, existingSummary, `T${String(startNum).padStart(2, '0')}`, 15)
-        : breakdownPrompt(spec.content, arch.content, 20)) + (lastError ? `\n\nATTENTION, tentative précédente invalide: ${lastError}` : ''),
+        ? breakdownRevisionPrompt(spec.content, existingSummary, `T${String(startNum).padStart(2, '0')}`, profile.maxTasksRevision, profile.scopeGuidance)
+        : breakdownPrompt(spec.content, arch.content, profile.minTasks, profile.maxTasks, profile.scopeGuidance)) +
+      (lastError ? `\n\nATTENTION, tentative précédente invalide: ${lastError}` : ''),
     jsonSchema: BREAKDOWN_JSON_SCHEMA,
     zodSchema: BreakdownOutputZ,
     semanticCheck: (d) => (isRevision ? checkTaskDagAppend(d.tasks, existingKeys) : checkTaskDag(d.tasks)),
@@ -441,8 +511,11 @@ export async function stepTaskBreakdown(ctx: StepCtx): Promise<StepFlow> {
             title: t.title,
             description: t.description,
             filesHint: t.files_hint,
+            writes: t.writes ?? [],
             acceptance: t.acceptance,
             dependsOn: t.depends_on.map((dep) => mapping.get(dep) ?? dep),
+            after: (t.after ?? []).map((dep) => mapping.get(dep) ?? dep),
+            phase: t.phase ?? DEFAULT_TASK_PHASE,
           }))
         );
       } else {
@@ -454,8 +527,11 @@ export async function stepTaskBreakdown(ctx: StepCtx): Promise<StepFlow> {
             title: t.title,
             description: t.description,
             filesHint: t.files_hint,
+            writes: t.writes ?? [],
             acceptance: t.acceptance,
             dependsOn: t.depends_on,
+            after: t.after ?? [],
+            phase: t.phase ?? DEFAULT_TASK_PHASE,
           }))
         );
       }
@@ -479,32 +555,42 @@ export async function stepScaffold(ctx: StepCtx): Promise<StepFlow> {
   });
 }
 
-/** Topological order (Kahn), stable by position; falls back to position order on cycle. */
+/**
+ * Topological order (Kahn) over BOTH edge kinds, phase first then position as tie-break;
+ * falls back to phase+position order on cycle.
+ */
 export function topoOrder(tasks: TaskDto[]): TaskDto[] {
   const byKey = new Map(tasks.map((t) => [t.taskKey, t]));
+  // Phase then position: a polish task never sorts ahead of core work of equal indegree.
+  const rank = (a: TaskDto, b: TaskDto) => phaseRank(a.phase) - phaseRank(b.phase) || a.position - b.position;
+  const edges = new Map(tasks.map((t) => [t.taskKey, blockingEdges(t).filter((d) => byKey.has(d))]));
+
   const indegree = new Map<string, number>();
-  for (const t of tasks) indegree.set(t.taskKey, t.dependsOn.filter((d) => byKey.has(d)).length);
-  const ready = tasks.filter((t) => indegree.get(t.taskKey) === 0).sort((a, b) => a.position - b.position);
+  for (const t of tasks) indegree.set(t.taskKey, edges.get(t.taskKey)!.length);
+  const ready = tasks.filter((t) => indegree.get(t.taskKey) === 0).sort(rank);
   const out: TaskDto[] = [];
   while (ready.length) {
     const t = ready.shift()!;
     out.push(t);
     for (const other of tasks) {
-      if (other.dependsOn.includes(t.taskKey)) {
+      if (edges.get(other.taskKey)!.includes(t.taskKey)) {
         const d = indegree.get(other.taskKey)! - 1;
         indegree.set(other.taskKey, d);
         if (d === 0) {
           ready.push(other);
-          ready.sort((a, b) => a.position - b.position);
+          ready.sort(rank);
         }
       }
     }
   }
-  return out.length === tasks.length ? out : [...tasks].sort((a, b) => a.position - b.position);
+  return out.length === tasks.length ? out : [...tasks].sort(rank);
 }
 
+/** Outcome of one task inside a parallel batch. `requeued` = degrade to serial next round. */
+type TaskOutcome = StepFlow | { status: 'requeued' };
+
 export async function stepImplementTasks(ctx: StepCtx): Promise<StepFlow> {
-  const { repos, ws, bus, config } = ctx.deps;
+  const { repos, ws, bus, config, pool } = ctx.deps;
   const stack = ctx.getStack();
   if (!stack) return { status: 'failed', message: 'stack inconnue' };
   if (!repos.tasks.list(ctx.projectId).length) return { status: 'failed', message: 'aucune tâche définie' };
@@ -514,46 +600,199 @@ export async function stepImplementTasks(ctx: StepCtx): Promise<StepFlow> {
   // Re-read the list on every iteration: a live micro-modification may append a
   // task while this loop is running — it must be picked up by the current build.
   for (;;) {
-    const ordered = topoOrder(repos.tasks.list(ctx.projectId).map(toTaskDto));
+    const all = repos.tasks.list(ctx.projectId).map(toTaskDto);
+    const ordered = topoOrder(all);
     const task = ordered.find((t) => t.status !== 'done');
     if (!task) break;
     if (ctx.signal.aborted) return { status: 'halted', mode: haltMode(ctx.signal) };
 
-    repos.projects.patch(ctx.projectId, { current_task_key: task.taskKey });
-    const inProgress = repos.tasks.setStatus(ctx.projectId, task.taskKey, 'in_progress');
-    bus.emit('task.updated', ctx.projectId, { task: toTaskDto(inProgress) });
-    const row = repos.projects.byId(ctx.projectId)!;
-    bus.emit('project.updated', ctx.projectId, { project: repos.projects.summary(row) });
+    // Width comes from the size tier capped by the global setting, and is then limited
+    // by what the session pool can actually lend right now (tryAcquire never blocks).
+    const width = parallelWidth(ctx);
+    const ready = readySet(ordered);
+    const extras = width > 1 ? pool.tryAcquire(Math.min(width, ready.length) - 1) : [];
+    const batch = pickBatch(ready, 1 + extras.length);
+    // Hand back the leases the batch did not end up using.
+    releaseAll(extras.slice(Math.max(0, batch.length - 1)));
 
-    const flow = await runToolStep(ctx, {
-      stepKey: 'implement_task',
-      taskKey: task.taskKey,
-      buildPrompt: (attempt, tail) => implementTaskPrompt(task, stack, tail, interfacesExcerpt),
-      verifyKinds: ['test'],
-      requireNewCommit: true,
-      maxAttempts: 3,
-    });
-
-    if (flow.status !== 'ok') {
-      if (flow.status === 'failed') {
-        const failed = repos.tasks.setStatus(ctx.projectId, task.taskKey, 'failed');
-        bus.emit('task.updated', ctx.projectId, { task: toTaskDto(failed) });
-        return { status: 'failed', message: `tâche ${task.taskKey}: ${flow.message}` };
-      }
-      return flow;
+    if (batch.length > 1) {
+      const flow = await runBatch(ctx, batch, stack, interfacesExcerpt);
+      releaseAll(extras);
+      if (flow.status !== 'ok') return flow;
+      continue;
     }
+    releaseAll(extras);
 
-    const sha = config.fakeCli ? null : await ws.headSha(ctx.workspace);
-    const done = repos.tasks.setStatus(ctx.projectId, task.taskKey, 'done', sha);
-    bus.emit('task.updated', ctx.projectId, { task: toTaskDto(done) });
-    writeTasksJson(ctx.deps, ctx.projectId, ctx.workspace);
-    ws.appendProgress(ctx.workspace, `${task.taskKey} terminé (${task.title})`);
-    await ws.commitAll(ctx.workspace, `chore: track ${task.taskKey.toLowerCase()} done`);
-    const row2 = repos.projects.byId(ctx.projectId)!;
-    bus.emit('project.updated', ctx.projectId, { project: repos.projects.summary(row2) });
+    const solo = batch[0] ?? task;
+    const outcome = await runOneTask(ctx, solo, stack, interfacesExcerpt);
+    if (outcome.status === 'requeued') continue;
+    if (outcome.status !== 'ok') return outcome;
   }
   repos.projects.patch(ctx.projectId, { current_task_key: null });
   return { status: 'ok' };
+}
+
+/** Batch width for this project: size tier, capped by the global setting. */
+function parallelWidth(ctx: StepCtx): number {
+  const { repos } = ctx.deps;
+  const settings = repos.settings.getAll();
+  const profile = profileFor(repos, repos.projects.byId(ctx.projectId));
+  return Math.max(1, Math.min(profile.taskParallelism, settings.taskParallelism));
+}
+
+function markInProgress(ctx: StepCtx, task: TaskDto): void {
+  const { repos, bus } = ctx.deps;
+  const row = repos.tasks.setStatus(ctx.projectId, task.taskKey, 'in_progress');
+  bus.emit('task.updated', ctx.projectId, { task: toTaskDto(row) });
+}
+
+function emitProject(ctx: StepCtx): void {
+  const { repos, bus } = ctx.deps;
+  const row = repos.projects.byId(ctx.projectId);
+  if (row) bus.emit('project.updated', ctx.projectId, { project: repos.projects.summary(row) });
+}
+
+/** Records a finished task and commits the orchestrator's bookkeeping in the MAIN workspace. */
+async function settleDone(ctx: StepCtx, task: TaskDto, sha: string | null): Promise<void> {
+  const { repos, ws, bus } = ctx.deps;
+  const done = repos.tasks.setStatus(ctx.projectId, task.taskKey, 'done', sha);
+  repos.tasks.setWorktree(ctx.projectId, task.taskKey, null);
+  bus.emit('task.updated', ctx.projectId, { task: toTaskDto(done) });
+  writeTasksJson(ctx.deps, ctx.projectId, ctx.workspace);
+  ws.appendProgress(ctx.workspace, `${task.taskKey} terminé (${task.title})`);
+  await ws.commitAll(ctx.workspace, `chore: track ${task.taskKey.toLowerCase()} done`);
+  emitProject(ctx);
+}
+
+/** The pre-existing serial path: one task, straight in the main workspace. */
+async function runOneTask(ctx: StepCtx, task: TaskDto, stack: StackInfo, interfacesExcerpt?: string): Promise<TaskOutcome> {
+  const { repos, ws, bus, config } = ctx.deps;
+  repos.projects.patch(ctx.projectId, { current_task_key: task.taskKey });
+  markInProgress(ctx, task);
+  emitProject(ctx);
+
+  const flow = await runToolStep(ctx, {
+    stepKey: 'implement_task',
+    taskKey: task.taskKey,
+    buildPrompt: (attempt, tail) => implementTaskPrompt(task, stack, tail, interfacesExcerpt),
+    verifyKinds: ['test'],
+    requireNewCommit: true,
+    maxAttempts: 3,
+  });
+
+  if (flow.status !== 'ok') {
+    if (flow.status === 'failed') {
+      const failed = repos.tasks.setStatus(ctx.projectId, task.taskKey, 'failed');
+      bus.emit('task.updated', ctx.projectId, { task: toTaskDto(failed) });
+      return { status: 'failed', message: `tâche ${task.taskKey}: ${flow.message}` };
+    }
+    return flow;
+  }
+
+  await settleDone(ctx, task, config.fakeCli ? null : await ws.headSha(ctx.workspace));
+  return { status: 'ok' };
+}
+
+/**
+ * Runs a batch of write-disjoint tasks concurrently, each in its own git worktree,
+ * merging every success into main as soon as it lands.
+ *
+ * `allSettled` semantics on purpose: one task hitting the usage limit must not discard
+ * the work of its siblings. Nothing is force-aborted — a sibling will park on its own and
+ * its `paused_limit` step_run is what the resume path looks for.
+ */
+async function runBatch(ctx: StepCtx, batch: TaskDto[], stack: StackInfo, interfacesExcerpt?: string): Promise<StepFlow> {
+  const { repos, ws, bus } = ctx.deps;
+  const slug = repos.projects.byId(ctx.projectId)!.slug;
+
+  repos.projects.patch(ctx.projectId, { current_task_key: batch[0].taskKey });
+  for (const t of batch) markInProgress(ctx, t);
+  emitProject(ctx);
+  ws.appendProgress(ctx.workspace, `lot parallèle: ${batch.map((t) => t.taskKey).join(', ')}`);
+
+  const results = await Promise.all(batch.map((task) => runInWorktree(ctx, task, slug, stack, interfacesExcerpt)));
+
+  // Precedence: a halt beats a park beats a failure — the most restrictive wins.
+  const halted = results.find((r) => r.status === 'halted');
+  if (halted) return halted as StepFlow;
+  const parked = results.find((r) => r.status === 'parked');
+  if (parked) return parked as StepFlow;
+  const failed = results.find((r) => r.status === 'failed');
+  if (failed) {
+    const idx = results.indexOf(failed);
+    const row = repos.tasks.setStatus(ctx.projectId, batch[idx].taskKey, 'failed');
+    bus.emit('task.updated', ctx.projectId, { task: toTaskDto(row) });
+    return failed as StepFlow;
+  }
+  return { status: 'ok' };
+}
+
+/**
+ * One task of a batch: implement in an isolated worktree, then merge into main under the
+ * project mutex (merges must be strictly serialised — they all write the same HEAD).
+ */
+async function runInWorktree(
+  ctx: StepCtx,
+  task: TaskDto,
+  slug: string,
+  stack: StackInfo,
+  interfacesExcerpt?: string
+): Promise<TaskOutcome> {
+  const { repos, ws, bus, config, mutex, wt } = ctx.deps;
+
+  let dir: string;
+  try {
+    dir = await wt.ensure(ctx.workspace, slug, task.taskKey);
+  } catch (err) {
+    // Worktree creation is infrastructure, not the model's fault: fall back to serial.
+    ws.appendProgress(ctx.workspace, `worktree impossible pour ${task.taskKey} (${(err as Error).message}) — reprise en série`);
+    repos.tasks.setStatus(ctx.projectId, task.taskKey, 'pending');
+    return { status: 'requeued' };
+  }
+  repos.tasks.setWorktree(ctx.projectId, task.taskKey, dir);
+
+  const flow = await runToolStep(ctx, {
+    stepKey: 'implement_task',
+    taskKey: task.taskKey,
+    workRoot: dir,
+    buildPrompt: (attempt, tail) => implementTaskPrompt(task, stack, tail, interfacesExcerpt) + WORKTREE_RULES,
+    verifyKinds: ['test'],
+    requireNewCommit: true,
+    maxAttempts: 3,
+  });
+
+  // Park/halt: keep the worktree AND the branch so the resume reattaches to the same tree.
+  if (flow.status === 'parked' || flow.status === 'halted') return flow;
+  if (flow.status === 'failed') return { status: 'failed', message: `tâche ${task.taskKey}: ${flow.message}` };
+
+  return mutex.run(`merge:${ctx.projectId}`, async () => {
+    const before = await ws.headSha(ctx.workspace);
+    const merged = await wt.merge(ctx.workspace, task.taskKey, task.title);
+    if (merged === 'conflict') {
+      ws.appendProgress(ctx.workspace, `conflit de fusion sur ${task.taskKey} — la tâche est reprise seule sur main à jour`);
+      await wt.remove(ctx.workspace, slug, task.taskKey);
+      repos.tasks.setWorktree(ctx.projectId, task.taskKey, null);
+      const row = repos.tasks.setStatus(ctx.projectId, task.taskKey, 'pending');
+      bus.emit('task.updated', ctx.projectId, { task: toTaskDto(row) });
+      return { status: 'requeued' };
+    }
+
+    // Two branches can merge cleanly and still break together: verify the merged tree.
+    const v = await verifyStack(config, ctx.workspace, stack, ['test']);
+    if (!v.ok) {
+      ws.appendProgress(ctx.workspace, `régression après fusion de ${task.taskKey} — retour en arrière et reprise en série`);
+      if (before) await ws.resetHard(ctx.workspace, before);
+      await wt.remove(ctx.workspace, slug, task.taskKey);
+      repos.tasks.setWorktree(ctx.projectId, task.taskKey, null);
+      const row = repos.tasks.setStatus(ctx.projectId, task.taskKey, 'pending');
+      bus.emit('task.updated', ctx.projectId, { task: toTaskDto(row) });
+      return { status: 'requeued' };
+    }
+
+    await settleDone(ctx, task, config.fakeCli ? null : await ws.headSha(ctx.workspace));
+    await wt.remove(ctx.workspace, slug, task.taskKey);
+    return { status: 'ok' };
+  });
 }
 
 export async function stepPolish(ctx: StepCtx): Promise<StepFlow> {
@@ -576,8 +815,6 @@ export async function stepPolish(ctx: StepCtx): Promise<StepFlow> {
   return flow;
 }
 
-const FEATURE_FIX_ROUNDS = 2;
-
 /**
  * Conformity gate: audit the REAL product against the SPEC's features (end-to-end wiring,
  * actual rendering), then run bounded fix sessions on gaps and re-audit.
@@ -586,8 +823,10 @@ export async function stepFeatureCheck(ctx: StepCtx): Promise<StepFlow> {
   const { ws, bus } = ctx.deps;
   const stack = ctx.getStack();
   if (!stack) return { status: 'failed', message: 'stack inconnue' };
+  const project = ctx.deps.repos.projects.byId(ctx.projectId);
+  const rounds = profileFor(ctx.deps.repos, project).featureFixRounds;
 
-  for (let round = 0; round <= FEATURE_FIX_ROUNDS; round++) {
+  for (let round = 0; round <= rounds; round++) {
     if (ctx.signal.aborted) return { status: 'halted', mode: haltMode(ctx.signal) };
 
     // --- audit: fresh session with tools (reads the codebase) + structured verdict
@@ -597,12 +836,12 @@ export async function stepFeatureCheck(ctx: StepCtx): Promise<StepFlow> {
       stepKey: 'feature_check',
       taskKey: 'audit',
       attempt: round + 1,
-      isLastAttempt: round === FEATURE_FIX_ROUNDS,
+      isLastAttempt: round === rounds,
       session: { id: newSessionId(), resume: false, kind: 'step' },
       signal: ctx.signal,
       spec: {
         ...baseSpec(ctx, 'feature_check'),
-        appendSystemPrompt: commonSystemPrompt(capsFor(ctx.deps.repos, 'feature_check')),
+        appendSystemPrompt: commonSystemPrompt(capsFor(ctx.deps.repos, 'feature_check', project)),
         prompt: featureAuditPrompt(ws.hasDesignReference(ctx.workspace)),
         tools: 'default',
         jsonSchema: FEATURE_AUDIT_JSON_SCHEMA,
@@ -620,7 +859,7 @@ export async function stepFeatureCheck(ctx: StepCtx): Promise<StepFlow> {
       if (f.kind === 'usage_limit') return { status: 'parked' };
       if (f.kind === 'canceled') return { status: 'halted', mode: haltMode(ctx.signal) };
       if (f.kind === 'auth') return { status: 'failed', message: f.message };
-      if (round === FEATURE_FIX_ROUNDS) return { status: 'failed', message: `audit des fonctionnalités impossible: ${f.message}` };
+      if (round === rounds) return { status: 'failed', message: `audit des fonctionnalités impossible: ${f.message}` };
       continue; // retry the audit on the next round
     }
 
@@ -641,12 +880,12 @@ export async function stepFeatureCheck(ctx: StepCtx): Promise<StepFlow> {
 
     if (!gaps.length) return { status: 'ok' };
 
-    if (round === FEATURE_FIX_ROUNDS) {
+    if (round === rounds) {
       const missing = gaps.filter((g) => g.status === 'missing');
       if (missing.length) {
         return {
           status: 'failed',
-          message: `fonctionnalités toujours absentes après ${FEATURE_FIX_ROUNDS} corrections: ${missing.map((m) => m.key).join(', ')} (voir docs/FEATURE_AUDIT.md)`,
+          message: `fonctionnalités toujours absentes après ${rounds} corrections: ${missing.map((m) => m.key).join(', ')} (voir docs/FEATURE_AUDIT.md)`,
         };
       }
       ws.appendProgress(ctx.workspace, `audit: éléments partiels restants (${gaps.map((g) => g.key).join(', ')}) — voir docs/FEATURE_AUDIT.md`);
@@ -699,7 +938,11 @@ export async function stepDocs(ctx: StepCtx): Promise<StepFlow> {
   if (!stack) return { status: 'failed', message: 'stack inconnue' };
   const flow = await runToolStep(ctx, {
     stepKey: 'docs',
-    buildPrompt: (attempt, tail) => docsPrompt(stack) + (tail ? `\n\nATTENTION — échec précédent: ${tail}` : ''),
+    // DEPLOY.md documents the declared inventory instead of inventing its own open questions.
+    buildPrompt: (attempt, tail) =>
+      docsPrompt(stack) +
+      accessBlock(ctx.deps.repos.access.list(ctx.projectId).map(toAccessDto)) +
+      (tail ? `\n\nATTENTION — échec précédent: ${tail}` : ''),
     verifyKinds: [],
     requireNewCommit: false,
     maxAttempts: 2,
@@ -718,8 +961,9 @@ export async function stepFinalVerify(ctx: StepCtx): Promise<StepFlow> {
   const { config, ws } = ctx.deps;
   const stack = ctx.getStack();
 
-  const check = async (): Promise<string | null> => {
-    const v = await verifyStack(config, ctx.workspace, stack, ['install', 'build', 'test']);
+  // A fix session may have edited a manifest: the second pass must not trust the install memo.
+  const check = async (forceInstall = false): Promise<string | null> => {
+    const v = await verifyStack(config, ctx.workspace, stack, ['install', 'build', 'test'], { forceInstall });
     if (!v.ok) return `${v.label}\n${v.tail}`.slice(-1800);
     if (!config.fakeCli) {
       const audit = await auditCommits(ctx.workspace);
@@ -743,7 +987,7 @@ export async function stepFinalVerify(ctx: StepCtx): Promise<StepFlow> {
       maxAttempts: 1,
     });
     if (fix.status === 'parked' || fix.status === 'halted') return fix;
-    problem = await check();
+    problem = await check(true);
   }
   if (problem) return { status: 'failed', message: `vérification finale: ${problem}` };
   ws.appendProgress(ctx.workspace, 'vérification finale OK — prêt à déployer');

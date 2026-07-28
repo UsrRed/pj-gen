@@ -1,13 +1,15 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { PROJECT_SIZES, type ProjectSize } from '@pjgen/shared';
 import { api } from '../api/client.js';
-import { T } from '../i18n/fr.js';
+import { SIZE_HINTS, SIZE_LABELS, T } from '../i18n/fr.js';
 import { DesignFields, type DesignValue } from './DesignFields.js';
 
 export function NewProjectModal({ onClose }: { onClose: () => void }) {
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
   const [model, setModel] = useState<'default' | 'opus' | 'sonnet' | 'haiku'>('default');
+  const [size, setSize] = useState<ProjectSize | 'auto'>('auto');
   const [design, setDesign] = useState<DesignValue>({ designUrl: '', designContent: '' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,6 +24,7 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
         title: title.trim(),
         initialPrompt: prompt.trim(),
         model: model === 'default' ? null : model,
+        size: size === 'auto' ? null : size,
         designUrl: design.designUrl.trim() || undefined,
         designContent: design.designContent.trim() || undefined,
       });
@@ -46,6 +49,20 @@ export function NewProjectModal({ onClose }: { onClose: () => void }) {
             onChange={(e) => setPrompt(e.target.value)}
           />
           <DesignFields value={design} onChange={setDesign} />
+          <div className="text-sm text-zinc-400">
+            <div className="flex items-center gap-2">
+              <label>{T.sizeLabel} :</label>
+              <select className="input !w-auto" value={size} onChange={(e) => setSize(e.target.value as ProjectSize | 'auto')}>
+                <option value="auto">{T.sizeAuto}</option>
+                {PROJECT_SIZES.map((s) => (
+                  <option key={s} value={s}>
+                    {SIZE_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="mt-1 text-xs text-zinc-600">{size === 'auto' ? T.sizeAutoHint : SIZE_HINTS[size]}</p>
+          </div>
           <div className="flex items-center gap-2 text-sm text-zinc-400">
             <label>{T.model} :</label>
             <select className="input !w-auto" value={model} onChange={(e) => setModel(e.target.value as never)}>

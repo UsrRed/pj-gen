@@ -10,6 +10,13 @@ const execFileP = promisify(execFile);
 
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,38}$/;
 
+/**
+ * `merge=union` on the progress log: it is append-only, and every parallel task appends
+ * to it — without this it is the single most common spurious merge conflict between
+ * worktrees. Union concatenates both sides instead of failing.
+ */
+export const GITATTRIBUTES = 'docs/PROGRESS.md merge=union\n';
+
 export function slugify(title: string): string {
   const base = title
     .toLowerCase()
@@ -67,6 +74,7 @@ export class WorkspaceManager {
 
     fs.writeFileSync(path.join(ws, 'CLAUDE.md'), generatedClaudeMd(title));
     fs.writeFileSync(path.join(ws, '.gitignore'), 'node_modules/\ndist/\n.env\n*.log\n__pycache__/\n.venv/\n');
+    fs.writeFileSync(path.join(ws, '.gitattributes'), GITATTRIBUTES);
     fs.writeFileSync(path.join(ws, 'docs', 'PROGRESS.md'), `# Progression\n\n- ${new Date().toISOString()} — workspace initialisé\n`);
 
     await this.commitAll(ws, 'chore: initialize workspace');
@@ -91,6 +99,9 @@ export class WorkspaceManager {
     fs.writeFileSync(path.join(ws, '.git', 'hooks', 'commit-msg'), COMMIT_MSG_HOOK, { mode: 0o755 });
 
     if (!fs.existsSync(path.join(ws, 'CLAUDE.md'))) fs.writeFileSync(path.join(ws, 'CLAUDE.md'), generatedClaudeMd(title));
+    const attrs = path.join(ws, '.gitattributes');
+    const existingAttrs = fs.existsSync(attrs) ? fs.readFileSync(attrs, 'utf8') : '';
+    if (!existingAttrs.includes('docs/PROGRESS.md')) fs.appendFileSync(attrs, (existingAttrs && !existingAttrs.endsWith('\n') ? '\n' : '') + GITATTRIBUTES);
     fs.mkdirSync(path.join(ws, 'docs'), { recursive: true });
     if (!fs.existsSync(path.join(ws, 'docs', 'PROGRESS.md'))) {
       fs.writeFileSync(path.join(ws, 'docs', 'PROGRESS.md'), `# Progression\n\n- ${new Date().toISOString()} — dépôt importé depuis GitHub\n`);
@@ -206,6 +217,11 @@ export class WorkspaceManager {
     } catch {
       return null;
     }
+  }
+
+  /** Rolls the workspace back to a known commit — used to undo a merge that broke the tests. */
+  async resetHard(workspace: string, sha: string): Promise<void> {
+    await git(workspace, this.config, ['reset', '--hard', sha]);
   }
 
   async hasNewCommitSince(workspace: string, sha: string | null): Promise<boolean> {

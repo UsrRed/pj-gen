@@ -2,11 +2,11 @@
 
 pj-gen pilote le CLI **Claude Code** en mode headless (`claude -p`) via ton **abonnement** (OAuth — jamais de clé API) pour générer des projets logiciels complets :
 
-1. **Cadrage interactif** — tu donnes un prompt initial, une session claude pose ses questions dans un chat, puis une **SPEC** est générée et validée par toi.
+1. **Cadrage interactif** — tu donnes un prompt initial, une session claude pose ses questions dans un chat, établit le **gabarit** du projet (petit / MVP / gros / entreprise) et l'**inventaire des accès** nécessaires (SSH, domaine, base, API…), puis une **SPEC** est générée et validée par toi.
 2. **Construction 100 % autonome** — architecture → découpage en tâches → scaffolding → implémentation tâche par tâche → durcissement des tests → revue/corrections → documentation → vérification finale. Chaque étape est une session `claude -p` **fraîche avec un contexte minimal** (économie de tokens : l'état vit dans des fichiers `docs/SPEC.md`, `docs/ARCHITECTURE.md`, `docs/tasks.json`, pas dans la conversation).
 3. **Gate de déploiement HITL** — le pipeline s'arrête à « prêt à déployer » ; tu approuves dans l'UI, fournis les consignes, et une session assistée exécute le déploiement.
 4. **Reprise automatique de la limite 5 h** — quand le quota d'abonnement est atteint, le build est parqué avec l'heure de reset exacte (événement `rate_limit_event` du stream, avec fallback sur les motifs texte), puis **reprend tout seul** via `claude -p --resume <session>`.
-5. **File d'attente** — cadrage illimité en parallèle ; **2 builds simultanés max** (réglable 1–4), FIFO pour les autres.
+5. **File d'attente** — cadrage illimité en parallèle ; **2 builds simultanés max** (réglable 1–4) sous un plafond global de sessions (4 par défaut, 1–8), FIFO pour les autres. À l'intérieur d'un projet, les tâches indépendantes peuvent s'implémenter **en parallèle** dans des arbres de travail git isolés (réglable 1–4, **1 par défaut**).
 
 Interface web (français) : dashboard (slots actifs, file, quota), page projet (chat de cadrage, pipeline avec logs temps réel, artefacts, déploiement), réglages. La consommation affichée est en **tokens** (total par projet et par run, détail entrée/sortie/cache au survol) — pas en dollars : en abonnement, ce sont les tokens qui comptent pour la limite 5 h. Le garde-fou `--max-budget-usd` des réglages reste un simple cap de sécurité par session.
 
@@ -71,7 +71,47 @@ Onglet **Aperçu** d'un projet : lance le `run_cmd` du stack dans le workspace (
 
 ## Réglages (UI)
 
-Concurrence (1–4), modèle par défaut (opus/sonnet, surchargeable par projet et par étape), reprise auto au démarrage, skip du durcissement de tests, budget garde-fou par session (`--max-budget-usd`), caps tours/durée par étape (la CLI n'a plus `--max-turns` : le superviseur compte les tours du stream et coupe au-delà).
+Concurrence (1–4), plafond global de sessions de construction (1–8), tâches en parallèle par projet (1–4), modèle par défaut (opus/sonnet, surchargeable par projet et par étape), reprise auto au démarrage, skip du durcissement de tests, budget garde-fou par session (`--max-budget-usd`), caps tours/durée par étape (la CLI n'a plus `--max-turns` : le superviseur compte les tours du stream et coupe au-delà).
+
+## Gabarit de projet
+
+Chaque projet a une **taille** choisie à la création (ou « Auto », auquel cas le cadrage la propose et tu confirmes), figée à la validation du SPEC. Elle ne sert pas d'étiquette : elle pilote le pipeline.
+
+| Gabarit | Tâches max | Budgets | Tâches parallèles | Étapes sautées | Périmètre imposé |
+|---|---|---|---|---|---|
+| Petit projet | 6 | ×0,7 | 2 | benchmark design, durcissement tests | ni auth, ni migrations, ni observabilité |
+| MVP | 20 | ×1 | 2 | — | utilisable de bout en bout, périmètre serré |
+| Gros projet | 30 | ×1,4 | 3 | — | modularité, gestion d'erreurs, tests d'intégration |
+| Entreprise | 45 | ×1,8 | 4 | — | auth, migrations, logs structurés, CI, doc d'exploitation |
+
+Le gabarit choisit aussi le routage des modèles (sonnet partout pour un petit projet, opus sur l'architecture et la revue pour les gros). Les profils sont modifiables dans les réglages ; un cap ou un modèle réglé à la main n'est jamais écrasé par un gabarit.
+
+## Relations entre tâches
+
+Le découpage ne produit pas une simple liste ordonnée : l'architecte décrit un **graphe**, avec deux types de relations volontairement distincts.
+
+- `depends_on` — dépendance de **contrat** : la tâche ne peut pas être écrite tant que l'autre n'a pas produit son export, son schéma ou son fichier. On la garde minimale : chaque arête interdit une parallélisation.
+- `after` — relation d'**ordre** : la tâche pourrait techniquement démarrer, mais elle ne doit pas, parce que le travail serait à refaire. C'est là que vont les séquencements produit (« ne pas optimiser avant que le rendu soit figé »).
+- `phase` — étape produit : `foundation` (socle), `core` (fonctionnalités), `polish` (animations, transitions, finition). **Aucune tâche ne démarre tant qu'il reste du travail dans une phase antérieure.** C'est ce qui empêche d'animer un jeu qui ne tourne pas encore, sans que l'architecte ait à citer chaque tâche de gameplay dans `after`.
+
+Les trois se cumulent à l'ordonnancement, et le parallélisme s'exerce **à l'intérieur** d'une phase. Le découpage est refusé si une relation forme un cycle ou pointe vers une phase postérieure (elle ne pourrait jamais se débloquer). Dans l'onglet **Pipeline**, chaque tâche en attente affiche ce qui la retient.
+
+## Accès & secrets
+
+Le cadrage identifie les accès nécessaires (serveur SSH, domaine, base de données, clés d'API, SMTP, stockage) et les déclare dans un inventaire typé, visible dans l'onglet **Cadrage → 🔐 Accès & secrets**.
+
+- Les valeurs **non secrètes** (hôte, utilisateur, port, chemin de clé, domaine, répertoire cible) sont stockées et alimentent le prompt d'**architecture** — le produit est enfin conçu en sachant sur quoi il sera déployé — puis `docs/DEPLOY.md` et la session de déploiement.
+- Les valeurs **secrètes** ne sont jamais en base, jamais dans le chat, jamais relues par l'API : elles sont écrites directement dans le `.env` du workspace (non versionné, permissions 600). Le schéma de la base n'a aucune colonne pouvant les contenir, et le dépôt refuse tout champ dont le nom évoque un secret.
+- Pour SSH, on demande **hôte / utilisateur / port / chemin d'une clé locale** — jamais la clé : pj-gen tourne sur ta machine, l'agent SSH local suffit. Un bouton « Tester la connexion » vérifie l'accès (SSH et DNS).
+- `docs/ACCESS.md` est commité avec l'inventaire : clés, raisons et **noms** des variables `.env`, aucune valeur.
+- La validation du SPEC **avertit** si des accès manquent (un build nocturne ne doit pas être bloqué par un domaine pas encore acheté) ; l'approbation du **déploiement** les **exige**, sauf ceux marqués « non nécessaires ».
+
+## Performance
+
+- **Caches de dépendances mutualisés** entre tous les workspaces (npm, pnpm, yarn, pip, uv, go, cargo) : plus d'installation à froid par projet. `CI=1` est posé sur tout l'outillage, ce qui évite qu'une commande de test en mode *watch* tourne jusqu'au timeout à chaque vérification.
+- **Installation mémoïsée** : l'empreinte des manifestes évite de réinstaller les dépendances quand rien n'a changé (la vérification finale ne repaie plus l'install complète).
+- **Tâches parallèles** : après le découpage, les tâches indépendantes aux fichiers d'écriture disjoints tournent simultanément, chacune dans son `git worktree`, fusionnées dans `main` au fil de l'eau. Un conflit de fusion ou une régression après fusion n'échoue jamais : la tâche est reprise seule sur un `main` à jour — au pire on retombe sur le comportement séquentiel.
+- **📊 Stats** affiche désormais le **temps par étape** (médiane, p90, part passée en vérification) et le temps cumulé par projet : de quoi mesurer l'effet de chaque réglage.
 
 ## Garanties d'attribution
 

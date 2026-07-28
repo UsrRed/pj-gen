@@ -5,13 +5,15 @@ import { MODEL_NAMES } from '@pjgen/shared';
 import type { FastifyInstance } from 'fastify';
 import type { Container } from '../../container.js';
 import { badRequest, notFound } from '../../core/httpError.js';
-import { listArtifacts } from '../../pipeline/artifacts.js';
+import { isSecretArtifact, listArtifacts } from '../../pipeline/artifacts.js';
 import { toStepRunDto } from '../../db/repos/index.js';
 
 const execFileP = promisify(execFile);
 
 const SettingsPatchZ = z.object({
   maxConcurrentBuilds: z.number().int().min(1).max(4).optional(),
+  maxConcurrentSessions: z.number().int().min(1).max(8).optional(),
+  taskParallelism: z.number().int().min(1).max(4).optional(),
   defaultModel: z.enum(MODEL_NAMES).optional(),
   autoResumeOnBoot: z.boolean().optional(),
   skipTestHardening: z.boolean().optional(),
@@ -49,6 +51,7 @@ export function registerMiscRoutes(app: FastifyInstance, c: Container): void {
     const { id } = req.params as { id: string };
     const { path: relPath } = req.query as { path?: string };
     if (!relPath) throw badRequest('paramètre path requis');
+    if (isSecretArtifact(relPath)) throw badRequest('Fichier protégé — les secrets ne sont pas lisibles par l’API');
     const row = c.repos.projects.byId(id);
     if (!row) throw notFound('Projet introuvable');
     let file: { content: string; truncated: boolean } | null;
@@ -125,6 +128,8 @@ export function registerMiscRoutes(app: FastifyInstance, c: Container): void {
     perStep: c.repos.usage.statsPerStep(),
     perProject: c.repos.usage.statsPerProject(10),
     cacheRate: c.repos.usage.cacheRate(),
+    timePerStep: c.repos.usage.timePerStep(),
+    timePerProject: c.repos.usage.timePerProject(10),
   }));
 
   /** Probe: clear the recorded limit and let the scheduler retry immediately (free if still limited). */

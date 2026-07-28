@@ -11,6 +11,7 @@ import { registerProjectRoutes } from './routes/projects.js';
 import { registerMiscRoutes } from './routes/misc.js';
 import { registerControlRoutes } from './routes/control.js';
 import { registerGithubRoutes } from './routes/github.js';
+import { registerAccessRoutes } from './routes/access.js';
 
 export async function createApp(c: Container): Promise<FastifyInstance> {
   const app = Fastify({ logger: false, bodyLimit: 2_000_000 });
@@ -35,6 +36,7 @@ export async function createApp(c: Container): Promise<FastifyInstance> {
   registerMiscRoutes(app, c);
   registerControlRoutes(app, c);
   registerGithubRoutes(app, c);
+  registerAccessRoutes(app, c);
 
   const webDist = c.config.webDist;
   const hasWeb = fs.existsSync(path.join(webDist, 'index.html'));

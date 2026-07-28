@@ -1,8 +1,17 @@
 import { useMemo, useState } from 'react';
-import { PIPELINE_ORDER, type ProjectDetail, type StepKey, type StepRunDto } from '@pjgen/shared';
-import { STEP_LABELS, T } from '../i18n/fr.js';
+import { PIPELINE_ORDER, phaseRank, type ProjectDetail, type StepKey, type StepRunDto, type TaskDto } from '@pjgen/shared';
+import { STEP_LABELS, TASK_PHASE_HINTS, TASK_PHASE_LABELS, TASK_PHASE_STYLE, T } from '../i18n/fr.js';
 import { fmtDuration, fmtTokens, tokensTitle } from '../lib/format.js';
 import { LogViewer } from './LogViewer.js';
+
+/** Keys a pending task is still waiting on — contract deps, ordering relations, then the phase barrier. */
+function blockersOf(task: TaskDto, all: TaskDto[]): string[] {
+  const byKey = new Map(all.map((t) => [t.taskKey, t]));
+  const edges = [...new Set([...task.dependsOn, ...(task.after ?? [])])].filter((k) => byKey.get(k)?.status !== 'done');
+  if (edges.length) return edges;
+  const earlier = all.filter((t) => t.status !== 'done' && phaseRank(t.phase) < phaseRank(task.phase));
+  return earlier.length ? [TASK_PHASE_LABELS[earlier[0].phase]] : [];
+}
 
 function stepIcon(state: 'done' | 'active' | 'pending' | 'failed' | 'paused'): string {
   switch (state) {
@@ -40,7 +49,10 @@ export function PipelinePanel({ detail }: { detail: ProjectDetail }) {
     return m;
   }, [detail.stepRuns]);
 
-  const liveRun = detail.stepRuns.find((r) => r.status === 'running');
+  // A parallel batch has several runs alive at once: keep them all so the operator can
+  // switch between live sessions instead of silently following whichever came first.
+  const liveRuns = detail.stepRuns.filter((r) => r.status === 'running');
+  const liveRun = liveRuns[0];
   const shownRun = selectedRun ?? liveRun?.id ?? detail.stepRuns[detail.stepRuns.length - 1]?.id ?? null;
 
   const stepState = (key: StepKey): keyof typeof STATE_COLORS => {
@@ -89,6 +101,22 @@ export function PipelinePanel({ detail }: { detail: ProjectDetail }) {
             );
           })}
         </ol>
+        {liveRuns.length > 1 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-zinc-800 pt-3 text-xs">
+            <span className="text-amber-300">{T.parallelRuns(liveRuns.length)}</span>
+            {liveRuns.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => setSelectedRun(r.id)}
+                className={`rounded-full border px-2 py-0.5 font-mono ${
+                  shownRun === r.id ? 'border-indigo-500/50 bg-indigo-500/15 text-indigo-300' : 'border-zinc-700 text-zinc-400 hover:bg-zinc-800'
+                }`}
+              >
+                {r.taskKey ?? STEP_LABELS[r.stepKey]}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {detail.tasks.length > 0 && (
@@ -96,6 +124,8 @@ export function PipelinePanel({ detail }: { detail: ProjectDetail }) {
           <h3 className="mb-2 text-sm font-semibold text-zinc-300">{T.tasks}</h3>
           <ul className="space-y-1">
             {detail.tasks.map((t) => {
+              // Why a task hasn't started yet: the keys (or phase) it is still waiting on.
+              const blockers = blockersOf(t, detail.tasks);
               const taskRuns = detail.stepRuns.filter((r) => r.taskKey === t.taskKey);
               const last = taskRuns[taskRuns.length - 1];
               const icon = t.status === 'done' ? '✓' : t.status === 'in_progress' ? '●' : t.status === 'failed' ? '✗' : '○';
@@ -112,6 +142,16 @@ export function PipelinePanel({ detail }: { detail: ProjectDetail }) {
                   >
                     {t.title}
                   </button>
+                  {t.phase !== 'core' && (
+                    <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${TASK_PHASE_STYLE[t.phase]}`} title={TASK_PHASE_HINTS[t.phase]}>
+                      {TASK_PHASE_LABELS[t.phase]}
+                    </span>
+                  )}
+                  {t.status === 'pending' && blockers.length > 0 && (
+                    <span className="shrink-0 font-mono text-[10px] text-zinc-600" title={T.taskWaitingFor}>
+                      ⤺ {blockers.join(' ')}
+                    </span>
+                  )}
                   {t.commitSha && <span className="ml-auto font-mono text-[10px] text-zinc-600">{t.commitSha.slice(0, 8)}</span>}
                 </li>
               );

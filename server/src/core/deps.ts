@@ -4,6 +4,8 @@ import type { Bus } from './bus.js';
 import type { KeyedMutex } from './mutex.js';
 import type { RunnerFn } from '../claude/types.js';
 import type { WorkspaceManager } from '../pipeline/workspace.js';
+import type { WorktreeManager } from '../pipeline/worktree.js';
+import type { SessionPool } from './sessionPool.js';
 
 export interface SchedulerHooks {
   /** Wake the scheduler (something became runnable). */
@@ -23,5 +25,9 @@ export interface CoreDeps {
   runner: RunnerFn;
   mutex: KeyedMutex;
   ws: WorkspaceManager;
+  /** Git worktrees for parallel task implementation. */
+  wt: WorktreeManager;
   sched: SchedulerHooks;
+  /** Global ceiling on concurrent build sessions; parallel task batches borrow from it. */
+  pool: SessionPool;
 }

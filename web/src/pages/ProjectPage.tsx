@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { REOPENABLE_STATUSES, type MicroRequestDto } from '@pjgen/shared';
+import { PROJECT_SIZES, REOPENABLE_STATUSES, type MicroRequestDto, type ProjectSize } from '@pjgen/shared';
 import { api } from '../api/client.js';
 import { useSse } from '../api/sse.js';
 import { useStore } from '../store/useStore.js';
@@ -11,7 +11,8 @@ import { PipelinePanel } from '../components/PipelinePanel.js';
 import { ArtifactsPanel } from '../components/ArtifactsPanel.js';
 import { AppPanel } from '../components/AppPanel.js';
 import { DeployPanel } from '../components/DeployPanel.js';
-import { STEP_LABELS, T } from '../i18n/fr.js';
+import { AccessPanel } from '../components/AccessPanel.js';
+import { SIZE_BADGES, SIZE_HINTS, SIZE_LABELS, STEP_LABELS, T } from '../i18n/fr.js';
 import { fmtTokens, tokensTitle } from '../lib/format.js';
 import { DesignFields, type DesignValue } from '../components/DesignFields.js';
 import { MICRO_STATUS_STYLE } from '../components/badges.js';
@@ -214,6 +215,25 @@ export function ProjectPage() {
             {['draft', 'spec_ready'].includes(detail.status) && (
               <>
                 <span>·</span>
+                <label className="flex items-center gap-1" title={detail.size ? SIZE_HINTS[detail.size] : T.sizeAutoHint}>
+                  <span>{T.sizeLabel}:</span>
+                  <select
+                    className="rounded border border-zinc-700 bg-zinc-900 px-1 py-0.5 text-xs"
+                    value={detail.size ?? 'auto'}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      void api.patchProject(id, { size: v === 'auto' ? null : (v as ProjectSize) }).then(setDetail);
+                    }}
+                  >
+                    <option value="auto">{T.sizeAuto}</option>
+                    {PROJECT_SIZES.map((s) => (
+                      <option key={s} value={s}>
+                        {SIZE_LABELS[s]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <span>·</span>
                 <label className="flex items-center gap-1" title={T.sDesignBenchmarkHint}>
                   <span>{T.projBenchmark}:</span>
                   <select
@@ -234,6 +254,14 @@ export function ProjectPage() {
           </div>
         </div>
         <StatusBadge status={detail.status} />
+        {detail.size && !['draft', 'spec_ready'].includes(detail.status) && (
+          <span
+            className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${SIZE_BADGES[detail.size]}`}
+            title={`${SIZE_HINTS[detail.size]}\n${T.sizeFrozen}`}
+          >
+            {SIZE_LABELS[detail.size]}
+          </span>
+        )}
         {detail.iteration > 1 && (
           <span className="rounded-full border border-violet-500/30 bg-violet-500/15 px-2.5 py-0.5 text-xs font-medium text-violet-300">
             {T.iteration(detail.iteration)}
@@ -328,6 +356,7 @@ export function ProjectPage() {
       </nav>
 
       {activeTab === 'cadrage' && (
+        <div className="space-y-4">
         <ChatPanel
           projectId={id}
           messages={detail.messages}
@@ -364,6 +393,8 @@ export function ProjectPage() {
             ) : undefined
           }
         />
+        <AccessPanel projectId={id} />
+        </div>
       )}
       {activeTab === 'pipeline' && <PipelinePanel detail={detail} />}
       {activeTab === 'artifacts' && <ArtifactsPanel projectId={id} workspacePath={detail.workspacePath} />}

@@ -7,6 +7,34 @@ const IGNORED = new Set(['node_modules', '.git', 'dist', 'build', '__pycache__',
 const MAX_ENTRIES = 800;
 const MAX_DEPTH = 6;
 
+/**
+ * Files the artifacts API must never serve. The tree walk already hides dotfiles, but
+ * the read-by-path route does not go through it: without this, `?path=.env` returns the
+ * project's secrets verbatim — and `settings.exposeLan` publishes that API on the LAN
+ * with no auth. Internal readers (steps reading docs/SPEC.md) bypass this deliberately.
+ */
+const SECRET_PATHS = [
+  /(^|\/)\.env($|\.)/i,
+  /(^|\/)\.git(\/|$)/,
+  /(^|\/)\.npmrc$/i,
+  /(^|\/)id_(rsa|dsa|ecdsa|ed25519)$/,
+  /\.(pem|key|p12|pfx)$/i,
+];
+
+/**
+ * Template files that LOOK like `.env` but are meant to be committed and read: they list
+ * variable names with placeholder values and never carry a real secret. Blocking them
+ * would hide a file the operator legitimately needs from the Artefacts tab.
+ */
+const ENV_TEMPLATES = /(^|\/)\.env\.(example|sample|template|dist|defaults)$/i;
+
+/** True when the path must not be exposed through the artifacts API. */
+export function isSecretArtifact(relPath: string): boolean {
+  const normalized = relPath.replace(/\\/g, '/').replace(/^\.\//, '');
+  if (ENV_TEMPLATES.test(normalized)) return false;
+  return SECRET_PATHS.some((re) => re.test(normalized));
+}
+
 export function listArtifacts(ws: WorkspaceManager, workspace: string): ArtifactNode[] {
   let count = 0;
   const walk = (dirAbs: string, rel: string, depth: number): ArtifactNode[] => {

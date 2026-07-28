@@ -1,6 +1,8 @@
 import { spawn } from 'node:child_process';
 import type { StackInfo } from '@pjgen/shared';
 import type { Config } from '../config.js';
+import { toolEnv } from '../core/toolEnv.js';
+import { clearInstallMark, installFingerprint, installIsFresh, markInstallOk } from './verifyCache.js';
 
 export interface VerifyResult {
   ok: boolean;
@@ -11,14 +13,25 @@ export interface VerifyResult {
 
 const TAIL_CAP = 4000;
 
-export function runCmd(workspace: string, cmd: string, timeoutMs: number, label = cmd): Promise<VerifyResult> {
+export function runCmd(
+  workspace: string,
+  cmd: string,
+  timeoutMs: number,
+  label = cmd,
+  env?: NodeJS.ProcessEnv
+): Promise<VerifyResult> {
   return new Promise((resolve) => {
     const started = Date.now();
     let tail = '';
     const push = (chunk: string) => {
       tail = (tail + chunk).slice(-TAIL_CAP);
     };
-    const child = spawn('bash', ['-c', cmd], { cwd: workspace, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('bash', ['-c', cmd], {
+      cwd: workspace,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: env ? { ...process.env, ...env } : undefined,
+    });
     child.stdout.setEncoding('utf8');
     child.stderr.setEncoding('utf8');
     child.stdout.on('data', push);
@@ -57,15 +70,41 @@ const CMD_TIMEOUTS: Record<VerifyKind, number> = {
   test: 10 * 60 * 1000,
 };
 
+export interface VerifyOpts {
+  /** Skips the install memoisation — used after a fix session, where a stale memo would hide a real break. */
+  forceInstall?: boolean;
+}
+
 /** Runs the stack's commands in order, stopping at the first failure. Fake mode always passes. */
-export async function verifyStack(config: Config, workspace: string, stack: StackInfo | null, kinds: VerifyKind[]): Promise<VerifyResult> {
+export async function verifyStack(
+  config: Config,
+  workspace: string,
+  stack: StackInfo | null,
+  kinds: VerifyKind[],
+  opts: VerifyOpts = {}
+): Promise<VerifyResult> {
   if (config.fakeCli) return { ok: true, label: 'simulation', tail: '', durationMs: 0 };
   if (!stack) return { ok: false, label: 'stack', tail: 'stack inconnue (architecture manquante)', durationMs: 0 };
+  const env = toolEnv(config);
+  let totalMs = 0;
   for (const kind of kinds) {
     const cmd = kind === 'install' ? stack.install_cmd : kind === 'build' ? stack.build_cmd : stack.test_cmd;
     if (!cmd || !cmd.trim()) continue;
-    const r = await runCmd(workspace, cmd, CMD_TIMEOUTS[kind], `${kind}: ${cmd}`);
-    if (!r.ok) return r;
+
+    // Dependencies are re-installed only when a manifest actually changed.
+    let fingerprint: string | null = null;
+    if (kind === 'install') {
+      fingerprint = installFingerprint(workspace, cmd);
+      if (!opts.forceInstall && installIsFresh(workspace, fingerprint)) continue;
+    }
+
+    const r = await runCmd(workspace, cmd, CMD_TIMEOUTS[kind], `${kind}: ${cmd}`, env);
+    totalMs += r.durationMs;
+    if (!r.ok) {
+      if (kind === 'install') clearInstallMark(workspace);
+      return { ...r, durationMs: totalMs };
+    }
+    if (fingerprint) markInstallOk(workspace, fingerprint);
   }
-  return { ok: true, label: kinds.join('+'), tail: '', durationMs: 0 };
+  return { ok: true, label: kinds.join('+'), tail: '', durationMs: totalMs };
 }

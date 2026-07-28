@@ -1,4 +1,4 @@
-import type { AppStateDto, ArtifactNode, GithubRepoView, GithubStatusDto, IssueDto, LanStatusDto, LogLineDto, ModelName, ProjectDetail, ProjectSummary, QueueSnapshot, QuotaDto, SettingsDto, StatsDto, StepRunDto } from '@pjgen/shared';
+import type { AccessDto, AppStateDto, ArtifactNode, GithubRepoView, GithubStatusDto, IssueDto, LanStatusDto, LogLineDto, ModelName, ProjectDetail, ProjectSize, ProjectSummary, QueueSnapshot, QuotaDto, SettingsDto, StatsDto, StepRunDto } from '@pjgen/shared';
 
 export const API_BASE = '';
 
@@ -23,10 +23,16 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   listProjects: () => req<{ projects: ProjectSummary[]; queue: QueueSnapshot }>('/api/projects'),
   getProject: (id: string) => req<ProjectDetail>(`/api/projects/${id}`),
-  patchProject: (id: string, body: { designBenchmark: boolean | null }) =>
+  patchProject: (id: string, body: { designBenchmark?: boolean | null; size?: ProjectSize | null }) =>
     req<ProjectDetail>(`/api/projects/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
-  createProject: (body: { title: string; initialPrompt: string; model?: ModelName | null; designContent?: string; designUrl?: string }) =>
-    req<ProjectDetail>('/api/projects', { method: 'POST', body: JSON.stringify(body) }),
+  createProject: (body: {
+    title: string;
+    initialPrompt: string;
+    model?: ModelName | null;
+    size?: ProjectSize | null;
+    designContent?: string;
+    designUrl?: string;
+  }) => req<ProjectDetail>('/api/projects', { method: 'POST', body: JSON.stringify(body) }),
   chat: (id: string, content: string) => req<{ accepted: boolean }>(`/api/projects/${id}/chat`, { method: 'POST', body: JSON.stringify({ content }) }),
   generateSpec: (id: string) => req<{ accepted: boolean }>(`/api/projects/${id}/generate-spec`, { method: 'POST', body: '{}' }),
   validateSpec: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}/validate-spec`, { method: 'POST', body: '{}' }),
@@ -59,6 +65,17 @@ export const api = {
   setCut: (body: { targetAt: number; reservePct: number }) =>
     req<{ ok: boolean; quota: QuotaDto }>('/api/control/cut', { method: 'POST', body: JSON.stringify(body) }),
   deleteCut: () => req<{ ok: boolean }>('/api/control/cut', { method: 'DELETE', body: '{}' }),
+  access: (id: string) => req<{ items: AccessDto[]; secretsPresent: string[] }>(`/api/projects/${id}/access`),
+  patchAccess: (id: string, accessId: number, body: { fields?: Record<string, string>; status?: 'needed' | 'provided' | 'skipped' }) =>
+    req<{ item: AccessDto }>(`/api/projects/${id}/access/${accessId}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  addAccess: (id: string, body: { key: string; kind: string; label: string; required?: boolean; why?: string; secretEnvVars?: string[] }) =>
+    req<{ items: AccessDto[] }>(`/api/projects/${id}/access`, { method: 'POST', body: JSON.stringify(body) }),
+  deleteAccess: (id: string, accessId: number) => req<{ ok: boolean }>(`/api/projects/${id}/access/${accessId}`, { method: 'DELETE', body: '{}' }),
+  /** Secret values go one way only: written to the workspace .env, never read back. */
+  putAccessSecrets: (id: string, accessId: number, values: Record<string, string>) =>
+    req<{ ok: boolean; written: string[] }>(`/api/projects/${id}/access/${accessId}/secrets`, { method: 'POST', body: JSON.stringify({ values }) }),
+  testAccess: (id: string, accessId: number) =>
+    req<{ ok: boolean; detail: string; at: number }>(`/api/projects/${id}/access/${accessId}/test`, { method: 'POST', body: '{}' }),
   stats: () => req<StatsDto>('/api/stats'),
   notifyTest: () => req<{ ok: boolean }>('/api/settings/notify-test', { method: 'POST', body: '{}' }),
   lanStatus: () => req<LanStatusDto>('/api/lan'),

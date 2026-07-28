@@ -3,10 +3,13 @@ import type { CoreDeps, SchedulerHooks } from '../core/deps.js';
 import type { AuthStatus } from '../claude/capabilities.js';
 import { ProjectStateMachine } from '../core/stateMachine.js';
 import { evaluateCut, windowDto } from '../core/usageTracker.js';
+import type { Lease, SessionPool } from '../core/sessionPool.js';
 import type { Engine } from './engine.js';
 
 interface ActiveEngine {
   controller: AbortController;
+  /** Base session lease, held for the whole build so its steps never queue. */
+  lease: Lease | null;
 }
 
 /** FIFO scheduler: N build slots (default 2), quota-aware parking, timer-based resume. */
@@ -25,7 +28,8 @@ export class Scheduler implements SchedulerHooks {
 
   constructor(
     private deps: Omit<CoreDeps, 'sched'>,
-    private engine: Engine
+    private engine: Engine,
+    private pool: SessionPool
   ) {
     this.sm = new ProjectStateMachine(deps.repos.projects);
   }
@@ -216,7 +220,9 @@ export class Scheduler implements SchedulerHooks {
     }
 
     const settings = repos.settings.getAll();
-    let capacity = settings.maxConcurrentBuilds - this.engines.size;
+    // A project is only admitted when a session slot is actually free: admitting one
+    // whose very first step would have to queue leaves it in `building` doing nothing.
+    let capacity = Math.min(settings.maxConcurrentBuilds - this.engines.size, this.pool.available);
     if (capacity <= 0) return;
 
     const candidates = repos.projects.byStatus(['queued', 'paused_limit']);
@@ -226,7 +232,7 @@ export class Scheduler implements SchedulerHooks {
       if (!this.sm.tryTransition(project.id, [project.status === 'queued' ? 'queued' : 'paused_limit'], 'building')) continue;
 
       const controller = new AbortController();
-      this.engines.set(project.id, { controller });
+      this.engines.set(project.id, { controller, lease: this.pool.acquireOne() });
       capacity -= 1;
 
       const row = repos.projects.byId(project.id)!;
@@ -237,6 +243,7 @@ export class Scheduler implements SchedulerHooks {
         .runProject(project.id, controller.signal)
         .catch(() => undefined)
         .finally(() => {
+          this.engines.get(project.id)?.lease?.release();
           this.engines.delete(project.id);
           this.poke();
         });

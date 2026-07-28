@@ -7,6 +7,8 @@ export interface Config {
   dataDir: string;
   dbPath: string;
   workspaceRoot: string;
+  /** Shared package-manager caches, mutualised across every generated workspace. */
+  cacheDir: string;
   claudeBin: string;
   /** GitHub CLI binary — auth lives in gh's own keyring, never in pj-gen. */
   ghBin: string;
@@ -31,6 +33,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     dataDir,
     dbPath: path.join(dataDir, 'db.sqlite'),
     workspaceRoot: process.env.PJGEN_WORKSPACE_ROOT ?? path.join(home, 'pj-workspace'),
+    cacheDir: process.env.PJGEN_CACHE_DIR ?? path.join(dataDir, 'cache'),
     claudeBin: process.env.PJGEN_CLAUDE_BIN ?? 'claude',
     ghBin: process.env.PJGEN_GH_BIN ?? 'gh',
     fakeCli: process.env.PJGEN_FAKE_CLI === '1',
@@ -42,6 +45,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     resumeJitterMaxMs: 90_000,
     ...overrides,
   };
+  // Both derive from dataDir, which `overrides` may have replaced after the defaults were computed.
   cfg.dbPath = overrides.dbPath ?? path.join(cfg.dataDir, 'db.sqlite');
+  cfg.cacheDir = overrides.cacheDir ?? process.env.PJGEN_CACHE_DIR ?? path.join(cfg.dataDir, 'cache');
   return cfg;
 }

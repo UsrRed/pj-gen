@@ -1,4 +1,12 @@
-import type { StackInfo, TaskDto } from '@pjgen/shared';
+import type { ProjectSize, StackInfo, TaskDto } from '@pjgen/shared';
+
+/** Human-readable tier names, used inside prompts (the UI has its own copy in fr.ts). */
+export const SIZE_LABELS: Record<ProjectSize, string> = {
+  small: 'petit projet',
+  mvp: 'MVP',
+  large: 'gros projet',
+  enterprise: 'entreprise',
+};
 
 /**
  * Prompt-cache rule: the Anthropic API caches STABLE PREFIXES. Keep the big
@@ -11,8 +19,35 @@ export const CADRAGE_SYSTEM = `Tu es l'assistant de cadrage de pj-gen, un géné
 Objectif: aboutir rapidement à une spécification claire et réalisable du projet demandé.
 - Pose des questions ciblées (5 maximum à la fois), propose des choix par défaut raisonnables.
 - Sois concis, en français, orienté décisions.
-- Le projet sera construit automatiquement puis buildable/testable en local: garde un périmètre réaliste (MVP d'abord).
+- Le projet sera construit automatiquement puis buildable/testable en local: garde un périmètre réaliste.
+- GABARIT: évalue tôt la TAILLE du projet et propose-la explicitement dans suggested_size —
+  small (script, page unique, outil ciblé), mvp (produit minimal utilisable de bout en bout),
+  large (produit fini et robuste), enterprise (auth, migrations, observabilité, CI).
+  Justifie en une phrase dans size_rationale et rappelle le gabarit dans reply_markdown pour que
+  l'utilisateur puisse le corriger: c'est lui qui fixera le périmètre, le nombre de tâches, les
+  budgets et la durée de construction. Dans le doute, prends le gabarit le PLUS PETIT qui livre
+  quand même les éléments différenciants.
+- ACCÈS: identifie DÈS LES PREMIERS ÉCHANGES les accès dont le projet aura besoin pour tourner
+  et pour être déployé — serveur SSH, nom de domaine, base de données, API tierces, SMTP,
+  stockage objet. Déclare-les dans access_requirements: clé stable, type, libellé, caractère
+  obligatoire, RAISON, et le NOM des variables d'environnement secrètes. Réénonce la liste
+  COMPLÈTE à chaque tour. Demande dans le chat les informations NON secrètes (hôte, utilisateur,
+  port, domaine); ne demande JAMAIS dans le chat un mot de passe, une clé privée ou un jeton:
+  l'opérateur les saisira dans le panneau « Accès & secrets », qui les écrit directement dans le
+  fichier .env local. Pour un accès SSH, demande hôte / utilisateur / port / chemin de la clé —
+  JAMAIS la clé elle-même. Si le projet est purement local, renvoie une liste vide.
 - Quand tu as assez d'éléments, mets ready_for_spec à true et résume ta compréhension dans reply_markdown.`;
+
+/**
+ * Appended to a task prompt when it runs in an isolated worktree alongside siblings.
+ * Its job is to keep the task inside its declared write set so the merge stays trivial.
+ */
+export const WORKTREE_RULES = `
+
+TU TRAVAILLES DANS UN ARBRE DE TRAVAIL GIT ISOLÉ, EN PARALLÈLE d'autres tâches du même projet.
+- N'écris QUE dans les fichiers du périmètre de ta tâche.
+- INTERDIT: modifier package.json ou un fichier de verrouillage, installer une dépendance (elles sont déjà installées), modifier docs/tasks.json, renommer ou déplacer un fichier hors de ton périmètre, lancer git rebase/merge/checkout de branche, toucher la branche main.
+- Si ta tâche exige une nouvelle dépendance ou la modification d'un fichier partagé: ARRÊTE-TOI, committe ce que tu peux sans cette partie, et dis-le explicitement dans ton message final.`;
 
 /** Appended to tool-step prompts when docs/design/ exists (mockup handed off from Claude Design). */
 export const DESIGN_NOTE_TOOL = `Une maquette de référence existe dans docs/design/ (lis son README.md et le fichier de maquette): le rendu final doit s'y conformer — structure, hiérarchie visuelle, style. Consulte-la avant toute décision visuelle.`;
@@ -52,7 +87,10 @@ Règles:
 - Mêmes exigences que d'habitude: critères d'acceptation vérifiables, éléments différenciants non négociables.`;
 }
 
-export function specPrompt(initialPrompt: string, transcript: string): string {
+export function specPrompt(initialPrompt: string, transcript: string, size: ProjectSize | null, scopeGuidance = ''): string {
+  const sizeBlock = size
+    ? `\n\nGABARIT IMPOSÉ: « ${SIZE_LABELS[size]} ». Il est déjà tranché — respecte-le, ne le rediscute pas, et calibre le périmètre dessus.`
+    : '';
   return `Synthétise la spécification finale du projet à partir de la demande initiale et de l'échange de cadrage.
 
 <DEMANDE_INITIALE>
@@ -73,7 +111,7 @@ Rédige spec_markdown en français avec ces sections:
 ## Hors périmètre
 ## Critères de terminaison (definition of done)
 
-Le périmètre doit être réalisable par un développement automatisé en quelques heures: réduis le périmètre AUTOUR des éléments différenciants (fonctionnalités annexes, options), jamais les éléments différenciants eux-mêmes.`;
+Le périmètre doit être réalisable par un développement automatisé en quelques heures: réduis le périmètre AUTOUR des éléments différenciants (fonctionnalités annexes, options), jamais les éléments différenciants eux-mêmes.${sizeBlock}${scopeBlock(scopeGuidance)}`;
 }
 
 export function designBenchmarkPrompt(spec: string): string {
@@ -113,7 +151,7 @@ Produis:
 Exigences: rendu soigné et FINI (pas un wireframe), cohérence visuelle forte, lisible sur desktop et mobile. La maquette servira de référence contractuelle: le produit final devra s'y conformer.`;
 }
 
-export function archPrompt(spec: string): string {
+export function archPrompt(spec: string, scopeGuidance = ''): string {
   return `Tu conçois l'architecture d'un nouveau projet. Voici sa spécification validée:
 
 <SPEC>
@@ -128,10 +166,10 @@ Produis:
 
 Dépendances: JUSTIFIÉES, ni plus ni moins — prends les bibliothèques nécessaires à la qualité exigée par la SPEC (ex.: une lib d'animation si la SPEC exige des animations riches, un framework CSS si l'interface doit être soignée), évite le superflu. Toute dépendance déclarée ici DEVRA être réellement utilisée dans le code final.
 
-Contraintes: buildable et testable en local sans service payant ni Docker; la suite de tests doit rester rapide (<60 s).`;
+Contraintes: buildable et testable en local sans service payant ni Docker; la suite de tests doit rester rapide (<60 s).${scopeBlock(scopeGuidance)}`;
 }
 
-export function archUpdatePrompt(spec: string, existingArch: string, existingInterfaces?: string): string {
+export function archUpdatePrompt(spec: string, existingArch: string, existingInterfaces?: string, scopeGuidance = ''): string {
   const interfaces = existingInterfaces
     ? `\n<INTERFACES_ACTUELLES>\n${existingInterfaces}\n</INTERFACES_ACTUELLES>\n`
     : '';
@@ -148,10 +186,22 @@ ${spec}
 Règles:
 - Conserve la stack et les commandes existantes sauf nécessité absolue (les changer coûte cher).
 - Retourne architecture_markdown COMPLET (document à jour, pas un delta), interfaces_markdown COMPLET (contrats existants conservés + nouveaux contrats de la révision), stack (identique si inchangée) et risks.
-- Dépendances: mêmes règles que d'habitude — justifiées par la qualité exigée, et réellement utilisées.`;
+- Dépendances: mêmes règles que d'habitude — justifiées par la qualité exigée, et réellement utilisées.${scopeBlock(scopeGuidance)}`;
 }
 
-export function breakdownRevisionPrompt(spec: string, existingTasks: string, nextKey: string, maxTasks: number): string {
+/** Size-tier scope discipline. Goes at the END of a prompt: it is the volatile part,
+ *  and the stable SPEC/ARCHITECTURE blocks above it must keep their cacheable prefix. */
+export function scopeBlock(guidance: string): string {
+  return guidance.trim() ? `\n\n<GABARIT>\n${guidance.trim()}\n</GABARIT>` : '';
+}
+
+export function breakdownRevisionPrompt(
+  spec: string,
+  existingTasks: string,
+  nextKey: string,
+  maxTasks: number,
+  scopeGuidance = ''
+): string {
   return `Ce projet est déjà construit. Sa spécification vient d'être RÉVISÉE (voir la section "## Révision" en tête). Découpe UNIQUEMENT le delta de la révision en nouvelles tâches.
 
 <SPEC>
@@ -164,13 +214,15 @@ ${existingTasks || '(aucune — projet déjà construit, importé depuis un dép
 
 Règles:
 - Nouvelles tâches UNIQUEMENT pour ce que la révision change/ajoute (1 à ${maxTasks}), clés à partir de ${nextKey}.
-- depends_on peut référencer les tâches existantes (elles sont faites) et les nouvelles tâches antérieures.
+- depends_on peut référencer les tâches existantes (elles sont faites) et les nouvelles tâches; uniquement des dépendances de CONTRAT réelles, jamais un ordre de confort.
+- after: les séquencements produit (« pas d'animation avant que la fonctionnalité marche »); phase: foundation | core | polish — les tâches de finition visuelle vont en polish et attendront que le reste de la révision soit terminé.
+- writes: les chemins EXACTS que la tâche va créer ou modifier; deux nouvelles tâches sans lien de dépendance n'en partagent aucun.
 - Mêmes exigences que d'habitude: couverture totale du delta jusqu'au rendu visible, critères automatisés ET observables, pas de proxy de donnée pour du visuel.
 - CONTRATS EXPLICITES: chaque tâche précise entrées consommées, sorties produites (avec signatures) et dépendances de contrat; les contrats de docs/INTERFACES.md sont FIGÉS.
-- Chaque tâche ≤ 30 minutes, testable.`;
+- Chaque tâche ≤ 30 minutes, testable.${scopeBlock(scopeGuidance)}`;
 }
 
-export function breakdownPrompt(spec: string, arch: string, maxTasks: number): string {
+export function breakdownPrompt(spec: string, arch: string, minTasks: number, maxTasks: number, scopeGuidance = ''): string {
   return `Découpe ce projet en tâches d'implémentation ordonnées.
 
 <SPEC>
@@ -182,16 +234,27 @@ ${arch}
 </ARCHITECTURE>
 
 Règles de découpage:
-- Entre 3 et ${maxTasks} tâches, clés T01, T02, … dans l'ordre d'implémentation.
+- Entre ${minTasks} et ${maxTasks} tâches, clés T01, T02, … dans l'ordre d'implémentation.
 - Chaque tâche est implémentable indépendamment en ≤ 30 minutes, testable.
 - COUVERTURE TOTALE: chaque fonctionnalité F1..Fn de la SPEC doit être couverte par au moins une tâche, jusqu'à son câblage de bout en bout (donnée → rendu/effet visible par l'utilisateur). Vérifie la couverture avant de répondre.
 - Les éléments différenciants de la SPEC méritent PLUSIEURS tâches, dont une d'intégration finale visible.
 - Critères d'acceptation de DEUX types: (a) automatisés — vérifiables par des tests; (b) observables — formulés du point de vue de l'utilisateur («à l'écran, le cavalier décrit un arc et retombe avec un rebond»). Toute tâche à effet visible DOIT avoir au moins un critère observable.
 - PIÈGE INTERDIT: réduire une exigence visuelle/UX à une structure de données testable. Un registre qui «résout» une animation n'est PAS une animation à l'écran; un module jamais importé n'existe pas.
-- depends_on référence uniquement des tâches antérieures (pas de cycle).
-- files_hint: chemins des fichiers probablement concernés.
+- DEUX types de relations entre tâches, à ne pas confondre:
+  · depends_on = dépendance de CONTRAT: la tâche ne peut pas être écrite tant que l'autre n'a pas produit son export, son schéma ou son fichier. N'y mets jamais un simple ordre de confort.
+  · after = relation d'ORDRE: la tâche pourrait techniquement démarrer, mais elle ne DOIT pas commencer avant que les tâches citées soient terminées, parce que le travail serait à refaire. C'est ici que vont les séquencements produit — « ne pas animer avant que le jeu soit jouable », « ne pas optimiser avant que le rendu soit figé », « ne pas écrire la doc utilisateur avant que les écrans existent ».
+  Les deux bloquent l'ordonnancement; la distinction sert à garder depends_on minimal (donc le graphe large) tout en exprimant le séquencement réel.
+- phase: étape produit de la tâche.
+  · foundation — socle: modèle de données, boucle principale, plomberie dont tout le reste dépend.
+  · core — les fonctionnalités elles-mêmes. À la fin de cette phase le produit doit être UTILISABLE.
+  · polish — animations, transitions, sons, micro-interactions, raffinement visuel.
+  AUCUNE tâche d'une phase ne démarre tant qu'il reste du travail dans une phase antérieure. Mets en polish tout ce qui n'a de sens que sur un produit qui fonctionne déjà: tu n'as alors pas besoin de lister chaque tâche de gameplay dans after.
+  Une tâche ne peut pas dépendre (depends_on ou after) d'une tâche d'une phase POSTÉRIEURE.
+- MAXIMISE LA LARGEUR du graphe À L'INTÉRIEUR de chaque phase: plusieurs tâches doivent pouvoir démarrer en même temps. Préfère des verticales fonctionnelles indépendantes à une chaîne couche par couche.
+- files_hint: chemins des fichiers probablement LUS par la tâche.
+- writes: les chemins EXACTS que la tâche va créer ou modifier. Deux tâches sans lien de dépendance ne doivent partager AUCUN chemin d'écriture — si elles doivent toutes deux écrire dans le même fichier (index, barrel, routeur, configuration), soit tu les fusionnes, soit tu déclares une dépendance entre elles. Une tâche qui doit ajouter une dépendance au projet déclare le manifeste (package.json…) dans writes: elle sera exécutée seule.
 - CONTRATS EXPLICITES (anti-boucles): la description de chaque tâche précise ses ENTRÉES (fichiers/types/exports existants qu'elle consomme), ses SORTIES (fichiers produits, exports, endpoints — avec leur signature exacte quand elle engage une autre tâche) et ses dépendances de CONTRAT (quel export/schéma d'une tâche antérieure elle utilise). Les contrats de docs/INTERFACES.md sont FIGÉS: les tâches s'y conforment au lieu de les redécouvrir par essais-erreurs.
-- Le scaffolding (outillage, squelette) est déjà géré ailleurs: ne crée PAS de tâche "setup projet".`;
+- Le scaffolding (outillage, squelette) est déjà géré ailleurs: ne crée PAS de tâche "setup projet".${scopeBlock(scopeGuidance)}`;
 }
 
 export function scaffoldPrompt(stack: StackInfo): string {
@@ -371,7 +434,7 @@ Consignes:
 export function docsPrompt(stack: StackInfo): string {
   return `Rédige la documentation du projet.
 1. README.md en FRANÇAIS: présentation, prérequis, installation (« ${stack.install_cmd || '—'} »), usage (« ${stack.run_cmd || '—'} »), tests (« ${stack.test_cmd} »), structure du projet.
-2. docs/DEPLOY.md: options de déploiement pertinentes pour cette stack, prérequis, étapes, et la liste des QUESTIONS OUVERTES auxquelles l'opérateur devra répondre (cible, domaine, secrets...).
+2. docs/DEPLOY.md: options de déploiement pertinentes pour cette stack, prérequis, étapes. Si un inventaire d'accès est fourni ci-dessous, documente la procédure CONCRÈTE pour cette cible et liste les variables d'environnement requises PAR NOM (jamais de valeur); ne garde en QUESTIONS OUVERTES que ce que l'inventaire ne couvre pas.
 Termine par un commit \`docs: readme and deployment guide\`.`;
 }
 
