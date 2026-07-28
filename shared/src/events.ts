@@ -1,3 +1,4 @@
+import type { AccessDto } from './access.js';
 import type { ChatMessageDto, IssueDto, LogLineDto, MicroRequestDto, ProjectSummary, QueueSnapshot, QuotaDto, StepRunDto, TaskDto } from './types.js';
 
 export const EVENT_TYPES = [
@@ -17,6 +18,7 @@ export const EVENT_TYPES = [
   'app.log',
   'micro.updated',
   'issue.updated',
+  'access.updated',
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -37,6 +39,7 @@ export interface EventPayloads {
   'app.log': { lines: string[] };
   'micro.updated': { request: MicroRequestDto };
   'issue.updated': { issue: IssueDto };
+  'access.updated': { items: AccessDto[] };
 }
 
 export interface BusEvent<T extends EventType = EventType> {

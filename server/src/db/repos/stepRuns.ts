@@ -23,6 +23,10 @@ export interface StepRunRow {
   error_message: string | null;
   started_at: number | null;
   ended_at: number | null;
+  /** Wall-clock of the claude session itself (excludes the verification that follows). */
+  duration_ms: number | null;
+  /** Wall-clock of the stack verification (install/build/test) run by `validate`. */
+  verify_ms: number | null;
 }
 
 export function tokensOf(r: { input_tokens: number; output_tokens: number; cache_creation_tokens: number; cache_read_tokens: number }): TokenUsage {
@@ -52,6 +56,8 @@ export function toStepRunDto(r: StepRunRow): StepRunDto {
     errorMessage: r.error_message,
     startedAt: r.started_at,
     endedAt: r.ended_at,
+    durationMs: r.duration_ms,
+    verifyMs: r.verify_ms,
   };
 }
 
@@ -86,13 +92,16 @@ export class StepRunsRepo {
       errorKind?: FailureKind | null;
       errorMessage?: string | null;
       resumeAt?: number | null;
+      durationMs?: number | null;
+      verifyMs?: number | null;
     }
   ): StepRunRow {
     this.db
       .prepare(
         `UPDATE step_runs SET status = ?, num_turns = ?, cost_usd = ?,
                 input_tokens = ?, output_tokens = ?, cache_creation_tokens = ?, cache_read_tokens = ?,
-                error_kind = ?, error_message = ?, resume_at = ?, ended_at = ?, pid = NULL
+                error_kind = ?, error_message = ?, resume_at = ?, ended_at = ?,
+                duration_ms = ?, verify_ms = ?, pid = NULL
          WHERE id = ?`
       )
       .run(
@@ -107,6 +116,8 @@ export class StepRunsRepo {
         fields.errorMessage ?? null,
         fields.resumeAt ?? null,
         Date.now(),
+        fields.durationMs ?? null,
+        fields.verifyMs ?? null,
         id
       );
     return this.byId(id)!;

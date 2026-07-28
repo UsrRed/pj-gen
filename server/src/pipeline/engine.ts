@@ -2,6 +2,7 @@ import { MICRO_PIPELINE_ORDER, PIPELINE_ORDER, type StackInfo, type StepKey } fr
 import type { CoreDeps } from '../core/deps.js';
 import { ProjectStateMachine } from '../core/stateMachine.js';
 import { toMicroDto } from '../db/repos/index.js';
+import { profileFor } from './sizing.js';
 import {
   stepDesignBenchmark,
   stepDesign,
@@ -83,12 +84,20 @@ export class Engine {
     const settings = repos.settings.getAll();
     // Live micro-modifications run a reduced pipeline: implement the appended task(s), then verify.
     const isMicro = (project.pipeline_mode ?? 'full') === 'micro';
+    // The size tier drops whole steps (a small project needs no design benchmark nor
+    // test hardening) — that is the cheapest speedup there is, and it is per project.
+    const profile = profileFor(repos, project);
+    const skip = new Set<StepKey>(isMicro ? [] : profile.skipSteps);
+    if (settings.skipTestHardening) skip.add('test_hardening');
+    // An explicit per-project benchmark choice outranks the tier's default.
+    if (project.design_benchmark !== null) skip.delete('design_benchmark');
+
     const order = isMicro ? MICRO_PIPELINE_ORDER : PIPELINE_ORDER;
     const startIdx = project.current_step_key ? Math.max(0, order.indexOf(project.current_step_key)) : 0;
 
     for (let i = startIdx; i < order.length; i++) {
       const stepKey = order[i] as Exclude<StepKey, 'deploy' | 'micro'>;
-      if (stepKey === 'test_hardening' && settings.skipTestHardening) continue;
+      if (skip.has(stepKey)) continue;
       if (signal.aborted) return this.finishHalted(projectId, haltMode(signal));
 
       // A cancel/pause from outside may already have moved the status away from building.
@@ -145,7 +154,16 @@ export class Engine {
     return settled;
   }
 
+  /** On cancel, drop every worktree; on pause, keep them so the resume reattaches. */
+  private async sweepWorktrees(projectId: string, mode: 'pause' | 'cancel'): Promise<void> {
+    if (mode === 'pause') return;
+    const row = this.deps.repos.projects.byId(projectId);
+    if (!row) return;
+    await this.deps.wt.sweep(row.workspace_path, row.slug, []).catch(() => undefined);
+  }
+
   private finishHalted(projectId: string, mode: 'pause' | 'cancel'): EngineOutcome {
+    void this.sweepWorktrees(projectId, mode);
     if (mode === 'pause') {
       this.sm.tryTransition(projectId, ['building'], 'paused_user');
       this.emitProject(projectId);

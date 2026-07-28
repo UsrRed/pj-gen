@@ -1,5 +1,5 @@
 import type { DB } from '../db.js';
-import type { ModelName, PipelineMode, ProjectStatus, ProjectSummary, QueueSnapshot, StackInfo, StepKey } from '@pjgen/shared';
+import type { ModelName, PipelineMode, ProjectSize, ProjectStatus, ProjectSummary, QueueSnapshot, StackInfo, StepKey } from '@pjgen/shared';
 import { tokensOf } from './stepRuns.js';
 
 export interface ProjectRow {
@@ -8,6 +8,10 @@ export interface ProjectRow {
   title: string;
   status: ProjectStatus;
   model: ModelName | null;
+  /** Size tier; NULL = not decided yet (auto). Frozen at spec validation. */
+  size: ProjectSize | null;
+  /** Who decided it: an explicit operator choice wins over the cadrage suggestion. */
+  size_source: 'user' | 'cadrage' | 'default' | null;
   iteration: number;
   reopened_at: number | null;
   step_model_overrides: string;
@@ -37,12 +41,16 @@ export interface NewProject {
   slug: string;
   title: string;
   model: ModelName | null;
+  /** null = auto: the cadrage session proposes a tier. */
+  size?: ProjectSize | null;
   workspacePath: string;
   initialPrompt: string;
 }
 
 const PATCHABLE = new Set([
   'model',
+  'size',
+  'size_source',
   'iteration',
   'reopened_at',
   'step_model_overrides',
@@ -70,10 +78,10 @@ export class ProjectsRepo {
     const now = Date.now();
     this.db
       .prepare(
-        `INSERT INTO projects (id, slug, title, status, model, workspace_path, initial_prompt, created_at, updated_at)
-         VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?)`
+        `INSERT INTO projects (id, slug, title, status, model, size, size_source, workspace_path, initial_prompt, created_at, updated_at)
+         VALUES (?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(p.id, p.slug, p.title, p.model, p.workspacePath, p.initialPrompt, now, now);
+      .run(p.id, p.slug, p.title, p.model, p.size ?? null, p.size ? 'user' : null, p.workspacePath, p.initialPrompt, now, now);
     return this.byId(p.id)!;
   }
 
@@ -132,7 +140,7 @@ export class ProjectsRepo {
   deleteCascade(id: string): void {
     this.db.transaction(() => {
       this.db.prepare('DELETE FROM logs WHERE step_run_id IN (SELECT id FROM step_runs WHERE project_id = ?)').run(id);
-      for (const table of ['step_runs', 'sessions', 'tasks', 'messages', 'micro_requests', 'issues', 'app_runs', 'events']) {
+      for (const table of ['step_runs', 'sessions', 'tasks', 'messages', 'micro_requests', 'issues', 'project_access', 'app_runs', 'events']) {
         this.db.prepare(`DELETE FROM ${table} WHERE project_id = ?`).run(id);
       }
       this.db.prepare('DELETE FROM projects WHERE id = ?').run(id);
@@ -179,6 +187,8 @@ export class ProjectsRepo {
       title: row.title,
       status: row.status,
       model: row.model,
+      size: row.size ?? null,
+      sizeSource: row.size_source ?? null,
       iteration: row.iteration ?? 1,
       workspacePath: row.workspace_path,
       currentStepKey: row.current_step_key,

@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { CoreDeps } from '../core/deps.js';
 import { ProjectStateMachine } from '../core/stateMachine.js';
-import { toMessageDto } from '../db/repos/index.js';
+import { toAccessDto, toMessageDto } from '../db/repos/index.js';
 import { executeClaudeRun } from '../pipeline/stepRunner.js';
 import { capsFor, resolveModel } from '../pipeline/models.js';
 import { commonSystemPrompt } from '../prompts/common.js';
 import { deployFirstPrompt, deployNotesSystem } from '../prompts/steps.js';
+import { accessBlock } from '../prompts/access.js';
 import type { ChatService } from '../cadrage/chatService.js';
+import { conflict } from '../core/httpError.js';
 
 /** HITL deploy: approval gate, then a chat-driven claude session with full tools in the workspace. */
 export class DeployService {
@@ -26,6 +28,16 @@ export class DeployService {
 
   async approve(projectId: string, notes: string): Promise<void> {
     const { repos, mutex, bus } = this.deps;
+    // The hard gate for accesses: unlike spec validation, deploying without them cannot work.
+    // The operator's escape hatch is marking a requirement « non nécessaire » (status skipped).
+    const missing = repos.access.missing(projectId);
+    if (missing.length) {
+      throw conflict(
+        `Accès requis manquants : ${missing
+          .map((m) => m.label)
+          .join(', ')} — renseigne-les dans l'onglet Cadrage › Accès & secrets, ou marque-les « non nécessaires ».`
+      );
+    }
     await mutex.run(projectId, async () => {
       this.sm.transitionOr409(projectId, ['awaiting_deploy_approval', 'deploy_failed'], 'deploying', {
         deploy_notes: notes,
@@ -71,7 +83,9 @@ export class DeployService {
       const { model, fallbackModel } = resolveModel(repos, project, 'deploy');
       const caps = capsFor(repos, 'deploy');
       const settings = repos.settings.getAll();
-      const notes = project.deploy_notes?.trim() ? deployNotesSystem(project.deploy_notes) : '';
+      // Structured inventory first, free-text operator notes after.
+      const inventory = accessBlock(repos.access.list(projectId).map(toAccessDto));
+      const notes = inventory + (project.deploy_notes?.trim() ? `\n\n${deployNotesSystem(project.deploy_notes)}` : '');
 
       const { result } = await executeClaudeRun(this.deps, {
         projectId,

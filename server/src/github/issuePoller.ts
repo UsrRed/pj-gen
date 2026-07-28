@@ -13,6 +13,8 @@ import { toIssueDto, type IssueRow, type MicroRequestRow, type ProjectRow } from
  */
 export const AI_MARKER = 'généré par IA (pj-gen)._';
 const AI_MENTION = `_Message ${AI_MARKER}`;
+/** Projects synced in parallel per poll — same bound as the manual sync route. */
+const CONCURRENT_SYNCS = 4;
 /** Comment thread bounds fed to the qualification session (untrusted input). */
 const MAX_COMMENTS = 10;
 const MAX_COMMENT_CHARS = 2_000;
@@ -122,15 +124,21 @@ export class IssuePoller {
         const status = await this.github.status();
         if (status.authOk) {
           const linked = this.deps.repos.projects.all().filter((p) => p.github_repo);
-          for (const project of linked) {
-            try {
-              await this.syncProject(project, status.login);
-              await this.finalizeFixing(project);
-              await this.drainQueued(project, status.login);
-            } catch (err) {
-              // One project failing must not block the others.
-              console.error(`[issuePoller] sync failed for ${project.slug}:`, err);
-            }
+          // Bounded parallel sync, mirroring the manual sync route: these are network
+          // round-trips to the GitHub API, so a serial loop over N projects is N × latency.
+          for (let i = 0; i < linked.length; i += CONCURRENT_SYNCS) {
+            await Promise.all(
+              linked.slice(i, i + CONCURRENT_SYNCS).map(async (project) => {
+                try {
+                  await this.syncProject(project, status.login);
+                  await this.finalizeFixing(project);
+                  await this.drainQueued(project, status.login);
+                } catch (err) {
+                  // One project failing must not block the others.
+                  console.error(`[issuePoller] sync failed for ${project.slug}:`, err);
+                }
+              })
+            );
           }
         }
       }

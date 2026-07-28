@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
-import { MODEL_NAMES } from '@pjgen/shared';
+import { MODEL_NAMES, PROJECT_SIZES } from '@pjgen/shared';
 import type { ProjectDetail } from '@pjgen/shared';
 import type { Container } from '../../container.js';
 import type { ProjectRow } from '../../db/repos/index.js';
@@ -22,6 +22,8 @@ const CreateZ = z
     title: z.string().min(1).max(120),
     initialPrompt: z.string().min(1).max(20_000),
     model: z.enum(MODEL_NAMES).nullish(),
+    /** null/absent = auto: the cadrage session proposes a tier. */
+    size: z.enum(PROJECT_SIZES).nullish(),
   })
   .merge(DesignZ);
 
@@ -80,6 +82,7 @@ export function registerProjectRoutes(app: FastifyInstance, c: Container): void 
       slug,
       title: body.title,
       model: body.model ?? null,
+      size: body.size ?? null,
       workspacePath,
       initialPrompt: body.initialPrompt,
     });
@@ -100,12 +103,27 @@ export function registerProjectRoutes(app: FastifyInstance, c: Container): void 
     return detail(c, mustGet(c, id));
   });
 
-  /** Per-project preferences (currently: design benchmark toggle; null = follow global setting). */
+  /** Per-project preferences: design benchmark toggle (null = follow global setting) and size tier. */
   app.patch('/api/projects/:id', async (req) => {
     const { id } = req.params as { id: string };
-    const body = z.object({ designBenchmark: z.boolean().nullable() }).parse(req.body);
-    mustGet(c, id);
-    c.repos.projects.patch(id, { design_benchmark: body.designBenchmark === null ? null : body.designBenchmark ? 1 : 0 });
+    const body = z
+      .object({
+        designBenchmark: z.boolean().nullable().optional(),
+        size: z.enum(PROJECT_SIZES).nullable().optional(),
+      })
+      .parse(req.body);
+    const row = mustGet(c, id);
+    if (body.designBenchmark !== undefined) {
+      c.repos.projects.patch(id, { design_benchmark: body.designBenchmark === null ? null : body.designBenchmark ? 1 : 0 });
+    }
+    if (body.size !== undefined) {
+      // The tier is frozen at spec validation: budgets and pipeline shape must not
+      // move under a queued or running build.
+      if (row.status !== 'draft' && row.status !== 'spec_ready') {
+        throw conflict('Le gabarit est figé à la validation du SPEC — rouvre le projet pour le changer.');
+      }
+      c.repos.projects.patch(id, { size: body.size, size_source: body.size ? 'user' : null });
+    }
     emitProject(c, id);
     return detail(c, mustGet(c, id));
   });
@@ -191,6 +209,8 @@ export function registerProjectRoutes(app: FastifyInstance, c: Container): void 
       throw conflict(`Suppression réservée aux projets annulés (statut actuel « ${row.status} »)`);
     }
     await c.appRunner.stop(id);
+    // Worktrees live outside the workspace, so the rm below would leak them.
+    await c.wt.sweep(row.workspace_path, row.slug, []).catch(() => undefined);
     // Only wipe the folder when it lives under the workspace root (always true for
     // pj-gen-created workspaces — belt and braces against a corrupted DB path).
     const wsRoot = path.resolve(c.config.workspaceRoot);

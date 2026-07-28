@@ -211,6 +211,65 @@ const MIGRATIONS: string[] = [
     added_at INTEGER NOT NULL
   );
   `,
+  // v8 — run timing: wall-clock of the claude session and of the stack verification.
+  // Both were computed and thrown away; without them no speedup is measurable.
+  `
+  ALTER TABLE step_runs ADD COLUMN duration_ms INTEGER;
+  ALTER TABLE step_runs ADD COLUMN verify_ms INTEGER;
+  `,
+  // v9 — gabarit de projet: pilote périmètre, budgets, étapes et routage modèle.
+  // NULL = non tranché (auto). Les projets DÉJÀ lancés sont figés sur 'mvp', qui
+  // reproduit exactement les budgets et le pipeline d'avant cette migration.
+  `
+  ALTER TABLE projects ADD COLUMN size TEXT;
+  ALTER TABLE projects ADD COLUMN size_source TEXT;
+  UPDATE projects SET size = 'mvp', size_source = 'default'
+    WHERE size IS NULL AND status NOT IN ('draft', 'spec_ready');
+  `,
+  // v10 — implémentation parallèle: `writes` est l'ENGAGEMENT d'écriture d'une tâche
+  // (distinct de files_hint, qui n'est qu'une indication de lecture) et sert à composer
+  // des lots sans conflit; worktree_dir survit à un parcage quota pour que la reprise
+  // se rattache au même arbre de travail au lieu d'en recréer un sur un autre HEAD.
+  `
+  ALTER TABLE tasks ADD COLUMN writes TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE tasks ADD COLUMN worktree_dir TEXT;
+  UPDATE tasks SET writes = files_hint WHERE writes = '[]';
+  `,
+  // v11 — inventaire des accès identifié au cadrage. Aucune colonne ne peut contenir un
+  // secret: seules les valeurs NON secrètes (hôte, utilisateur, port, domaine…) sont
+  // stockées, et secret_env_vars ne contient que des NOMS de variables. Les valeurs
+  // secrètes vont directement dans le .env du workspace.
+  `
+  CREATE TABLE project_access (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL REFERENCES projects(id),
+    key TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    label TEXT NOT NULL,
+    required INTEGER NOT NULL DEFAULT 1,
+    why TEXT NOT NULL DEFAULT '',
+    fields TEXT NOT NULL DEFAULT '{}',
+    secret_env_vars TEXT NOT NULL DEFAULT '[]',
+    status TEXT NOT NULL DEFAULT 'needed',
+    source TEXT NOT NULL DEFAULT 'cadrage',
+    last_test_at INTEGER,
+    last_test_ok INTEGER,
+    last_test_detail TEXT,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    UNIQUE (project_id, key)
+  );
+
+  CREATE INDEX idx_access_proj ON project_access(project_id, id);
+  `,
+  // v12 — relations d'ORDRE entre tâches, distinctes des dépendances de contrat:
+  // `after` = « ne pas commencer avant que ces tâches soient terminées » (maturité, pas
+  // contrat), `phase` = étape produit (les animations attendent un jeu qui tourne).
+  // Défauts rétro-compatibles: aucune arête d'ordre, tout en phase 'core' = aucune barrière.
+  `
+  ALTER TABLE tasks ADD COLUMN after_keys TEXT NOT NULL DEFAULT '[]';
+  ALTER TABLE tasks ADD COLUMN phase TEXT NOT NULL DEFAULT 'core';
+  `,
 ];
 
 export function migrate(db: DB): void {

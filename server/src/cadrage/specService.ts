@@ -2,10 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { createHash } from 'node:crypto';
 import type { CoreDeps } from '../core/deps.js';
 import { ProjectStateMachine } from '../core/stateMachine.js';
-import { REOPENABLE_STATUSES } from '@pjgen/shared';
+import { DEFAULT_PROJECT_SIZE, REOPENABLE_STATUSES } from '@pjgen/shared';
+import { profileFor } from '../pipeline/sizing.js';
 import { SPEC_JSON_SCHEMA, SpecOutputZ, extractStructured } from '../prompts/schemas.js';
 import { specPrompt, specRevisionPrompt, DESIGN_NOTE_SPEC } from '../prompts/steps.js';
-import { toMessageDto } from '../db/repos/index.js';
+import { accessMarkdown } from '../prompts/access.js';
+import { toAccessDto, toMessageDto } from '../db/repos/index.js';
 import { commonSystemPrompt } from '../prompts/common.js';
 import { recordUsage } from '../core/usageTracker.js';
 import { capsFor, resolveModel } from '../pipeline/models.js';
@@ -75,8 +77,11 @@ export class SpecService {
       const sessionId = randomUUID();
       repos.sessions.insert(sessionId, projectId, 'cadrage');
       const { model, fallbackModel } = resolveModel(repos, project, 'spec');
-      const caps = capsFor(repos, 'spec');
+      const caps = capsFor(repos, 'spec', project);
       const settings = repos.settings.getAll();
+      // A tier already pinned (by the operator or by cadrage) is imposed on the SPEC;
+      // otherwise the SPEC session decides it and we record what it chose.
+      const profile = profileFor(repos, project);
 
       // Improvement iteration: revise the existing SPEC from the post-reopen conversation only.
       const isRevision = (project.iteration ?? 1) > 1;
@@ -84,7 +89,7 @@ export class SpecService {
       let prompt =
         isRevision && currentSpec
           ? specRevisionPrompt(currentSpec.content, this.buildTranscript(projectId, project.reopened_at), project.iteration)
-          : specPrompt(project.initial_prompt, this.buildTranscript(projectId));
+          : specPrompt(project.initial_prompt, this.buildTranscript(projectId), project.size, profile.scopeGuidance);
       if (ws.hasDesignReference(project.workspace_path)) prompt += `\n\n${DESIGN_NOTE_SPEC}`;
 
       const handle = runner({
@@ -119,7 +124,30 @@ export class SpecService {
         return;
       }
 
+      // The SPEC settles the tier unless the operator pinned one by hand.
+      if (parsed.data.size && project.size_source !== 'user') {
+        repos.projects.patch(projectId, { size: parsed.data.size, size_source: 'cadrage' });
+      }
+
+      if (parsed.data.access_requirements?.length) {
+        repos.access.upsertFromCadrage(
+          projectId,
+          parsed.data.access_requirements.map((a) => ({
+            key: a.key,
+            kind: a.kind,
+            label: a.label,
+            required: a.required,
+            why: a.why,
+            secretEnvVars: a.env_vars,
+          }))
+        );
+        bus.emit('access.updated', projectId, { items: repos.access.list(projectId).map(toAccessDto) });
+      }
+
       ws.writeFile(project.workspace_path, 'docs/SPEC.md', parsed.data.spec_markdown);
+      // Written by the orchestrator (zero tokens) and committed: keys and reasons only,
+      // never a value. The SPEC stays untouched — it is sha256-frozen.
+      ws.writeFile(project.workspace_path, 'docs/ACCESS.md', accessMarkdown(repos.access.list(projectId).map(toAccessDto)));
       await ws.commitAll(project.workspace_path, 'docs: project spec');
 
       if (this.sm.tryTransition(projectId, ['draft', 'spec_ready'], 'spec_ready')) {
@@ -192,12 +220,28 @@ export class SpecService {
       if (!spec) throw badRequest('docs/SPEC.md introuvable — génère le SPEC avant de valider');
 
       const sha = createHash('sha256').update(spec.content).digest('hex');
+      // Freeze the tier alongside the spec: from `queued` on, budgets and pipeline
+      // shape must not move under a running build.
       this.sm.transitionOr409(projectId, ['spec_ready'], 'queued', {
         spec_sha256: sha,
         spec_validated_at: Date.now(),
         enqueued_at: project.enqueued_at ?? Date.now(),
+        size: project.size ?? DEFAULT_PROJECT_SIZE,
+        size_source: project.size_source ?? 'default',
         error_message: null,
       });
+      // Warn, don't block: most accesses are only needed at DEPLOY time, and blocking an
+      // unattended overnight build over a domain that isn't bought yet would defeat the
+      // whole queue-it-tonight workflow. approveDeploy is the hard gate.
+      const missing = repos.access.missing(projectId);
+      if (missing.length) {
+        this.chat.systemMessage(
+          projectId,
+          'cadrage',
+          `⚠️ Accès requis non fournis : ${missing.map((m) => m.label).join(', ')}. La construction peut démarrer ; le déploiement les exigera.`
+        );
+      }
+
       const updated = repos.projects.byId(projectId)!;
       bus.emit('project.updated', projectId, { project: repos.projects.summary(updated) });
       bus.emit('queue.updated', null, repos.projects.queueSnapshot());

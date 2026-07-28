@@ -96,8 +96,13 @@ export async function executeClaudeRun(deps: CoreDeps, opts: ExecOpts): Promise<
   flush();
   if (opts.signal && onAbort) opts.signal.removeEventListener('abort', onAbort);
 
+  // `validate` is where verifyStack (install/build/test) runs: timing it separately
+  // tells apart "the model is slow" from "the test suite is slow".
+  let verifyMs: number | null = null;
   if (result.outcome === 'success' && opts.validate) {
+    const validateStarted = Date.now();
     const v = await opts.validate(result);
+    verifyMs = Date.now() - validateStarted;
     if (!v.ok) {
       result = {
         ...result,
@@ -138,6 +143,8 @@ export async function executeClaudeRun(deps: CoreDeps, opts: ExecOpts): Promise<
     errorKind: result.failure?.kind ?? null,
     errorMessage: result.failure?.message?.slice(0, 1000) ?? null,
     resumeAt,
+    durationMs: result.durationMs,
+    verifyMs,
   });
   bus.emit('step.finished', opts.projectId, { run: toStepRunDto(finished) });
 

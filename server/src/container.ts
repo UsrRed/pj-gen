@@ -5,6 +5,8 @@ import { Bus } from './core/bus.js';
 import { KeyedMutex } from './core/mutex.js';
 import type { CoreDeps, SchedulerHooks } from './core/deps.js';
 import { WorkspaceManager } from './pipeline/workspace.js';
+import { WorktreeManager } from './pipeline/worktree.js';
+import { ensureCacheDir } from './core/toolEnv.js';
 import { FAKE_CAPABILITIES, probeCapabilities, type Capabilities } from './claude/capabilities.js';
 import { createRealRunner } from './claude/runner.js';
 import { createFakeRunner } from './claude/fakeRunner.js';
@@ -20,6 +22,7 @@ import { IssuePoller } from './github/issuePoller.js';
 import { Notifier, type SendFn } from './core/notifier.js';
 import { AppRunner } from './preview/appRunner.js';
 import { LanExposure } from './core/lanExposure.js';
+import { SessionPool } from './core/sessionPool.js';
 
 export interface Container extends CoreDeps {
   db: DB;
@@ -50,6 +53,8 @@ export async function buildContainer(config: Config, overrides: ContainerOverrid
   const bus = new Bus(repos.events);
   const mutex = new KeyedMutex();
   const ws = new WorkspaceManager(config);
+  const wt = new WorktreeManager(config);
+  ensureCacheDir(config);
 
   const caps = overrides.caps ?? (config.fakeCli ? FAKE_CAPABILITIES : await probeCapabilities(config.claudeBin));
   const runner = overrides.runner ?? (config.fakeCli ? createFakeRunner() : createRealRunner(config, caps));
@@ -63,9 +68,15 @@ export async function buildContainer(config: Config, overrides: ContainerOverrid
     emitQuota: () => scheduler?.emitQuota(),
   };
 
-  const deps: CoreDeps = { config, repos, bus, runner, mutex, ws, sched: schedProxy };
+  // Reads the limit lazily so a settings change takes effect without a restart.
+  const pool = new SessionPool(
+    () => repos.settings.getAll().maxConcurrentSessions,
+    () => scheduler?.poke()
+  );
+
+  const deps: CoreDeps = { config, repos, bus, runner, mutex, ws, wt, sched: schedProxy, pool };
   const engine = new Engine(deps);
-  scheduler = new Scheduler(deps, engine);
+  scheduler = new Scheduler(deps, engine, pool);
   const chat = new ChatService(deps);
   const spec = new SpecService(deps, chat);
   const deploy = new DeployService(deps, chat);

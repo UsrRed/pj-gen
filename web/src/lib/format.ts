@@ -34,13 +34,18 @@ export function fmtDateTime(epochMs: number | null | undefined): string {
   return new Date(epochMs).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
 
-export function fmtDuration(startMs: number | null | undefined, endMs: number | null | undefined): string {
-  if (!startMs) return '—';
-  const ms = (endMs ?? Date.now()) - startMs;
+/** Formats a raw duration in ms (stats rows carry spans, not endpoints). */
+export function fmtSpan(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return '—';
   const s = Math.floor(ms / 1000);
   if (s < 60) return `${s}s`;
   const m = Math.floor(s / 60);
   return m < 60 ? `${m}min${s % 60 ? ` ${s % 60}s` : ''}` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}min` : ''}`;
+}
+
+export function fmtDuration(startMs: number | null | undefined, endMs: number | null | undefined): string {
+  if (!startMs) return '—';
+  return fmtSpan((endMs ?? Date.now()) - startMs);
 }
 
 export function fmtSize(bytes: number | undefined): string {

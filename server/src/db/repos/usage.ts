@@ -81,4 +81,56 @@ export class UsageRepo {
       .all() as { stepKey: string; runs: number; totalTokens: number }[];
     return rows.map((r) => ({ ...r, avgTokens: Math.round(r.totalTokens / r.runs) }));
   }
+
+  /**
+   * Wall-clock per step. Median and p90 rather than a mean: a single cap kill (30 min)
+   * would drag the mean of a step that normally lands in 4 minutes.
+   * Rows written before the timing migration have NULL duration_ms and are excluded.
+   */
+  timePerStep(): StatsDto['timePerStep'] {
+    const rows = this.db
+      .prepare(
+        `SELECT step_key AS stepKey, duration_ms AS durationMs, COALESCE(verify_ms, 0) AS verifyMs
+         FROM step_runs WHERE duration_ms IS NOT NULL ORDER BY step_key ASC, duration_ms ASC`
+      )
+      .all() as { stepKey: string; durationMs: number; verifyMs: number }[];
+
+    const byStep = new Map<string, { durations: number[]; verifyMs: number }>();
+    for (const r of rows) {
+      const entry = byStep.get(r.stepKey) ?? { durations: [], verifyMs: 0 };
+      entry.durations.push(r.durationMs); // already sorted ascending by the query
+      entry.verifyMs += r.verifyMs;
+      byStep.set(r.stepKey, entry);
+    }
+
+    return [...byStep.entries()]
+      .map(([stepKey, { durations, verifyMs }]) => ({
+        stepKey,
+        runs: durations.length,
+        medianMs: quantile(durations, 0.5),
+        p90Ms: quantile(durations, 0.9),
+        totalMs: durations.reduce((a, b) => a + b, 0),
+        verifyMs,
+      }))
+      .sort((a, b) => b.totalMs - a.totalMs);
+  }
+
+  /** Wall-clock summed per project — the number to compare before/after a parallelism change. */
+  timePerProject(limit = 10): StatsDto['timePerProject'] {
+    return this.db
+      .prepare(
+        `SELECT p.slug, p.title, SUM(r.duration_ms) AS totalMs, COUNT(*) AS runs
+         FROM step_runs r JOIN projects p ON p.id = r.project_id
+         WHERE r.duration_ms IS NOT NULL
+         GROUP BY r.project_id ORDER BY totalMs DESC LIMIT ?`
+      )
+      .all(limit) as StatsDto['timePerProject'];
+  }
+}
+
+/** Nearest-rank quantile over an ASCENDING-sorted array. */
+function quantile(sorted: number[], q: number): number {
+  if (!sorted.length) return 0;
+  const rank = Math.ceil(q * sorted.length);
+  return sorted[Math.min(sorted.length, Math.max(1, rank)) - 1];
 }

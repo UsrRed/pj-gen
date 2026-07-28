@@ -1,6 +1,7 @@
 import path from 'node:path';
 import type { Config } from '../config.js';
 import { READER_AGENTS } from '../prompts/common.js';
+import { toolEnv } from '../core/toolEnv.js';
 import type { Capabilities } from './capabilities.js';
 import type { SessionSpec } from './types.js';
 
@@ -26,6 +27,8 @@ const STRIPPED_ENV = [
 export function buildEnv(config: Config): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };
   for (const k of STRIPPED_ENV) delete env[k];
+  // Shared caches + CI=1, applied AFTER the strip loop so it can never re-introduce a key.
+  Object.assign(env, toolEnv(config));
   env.GIT_AUTHOR_NAME = config.gitAuthorName;
   env.GIT_AUTHOR_EMAIL = config.gitAuthorEmail;
   env.GIT_COMMITTER_NAME = config.gitAuthorName;

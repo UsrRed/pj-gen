@@ -1,11 +1,47 @@
 import { z } from 'zod';
+import { ACCESS_KINDS, DEFAULT_TASK_PHASE, PROJECT_SIZES, TASK_PHASES } from '@pjgen/shared';
 
 /** zod schemas (server-side validation) + plain JSON Schemas (passed to `--json-schema`). */
+
+/** '' = tier not decided yet. Optional with a default so older fake/recorded outputs still parse. */
+const SizeFieldZ = z.enum([...PROJECT_SIZES, '']).default('');
+const SIZE_ENUM = [...PROJECT_SIZES, ''];
+
+/** Access requirement as declared by cadrage. NAMES of secrets only — never their values. */
+export const AccessRequirementZ = z.object({
+  key: z.string().min(1).max(64),
+  kind: z.enum(ACCESS_KINDS),
+  label: z.string().min(1).max(160),
+  required: z.boolean().default(true),
+  why: z.string().default(''),
+  env_vars: z.array(z.string()).default([]),
+});
+
+const ACCESS_REQUIREMENT_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    key: { type: 'string', description: 'Clé stable en minuscules, ex. ssh_prod, stripe' },
+    kind: { type: 'string', enum: [...ACCESS_KINDS] },
+    label: { type: 'string', description: 'Libellé lisible, ex. « VPS de production »' },
+    required: { type: 'boolean', description: 'false pour un accès optionnel' },
+    why: { type: 'string', description: 'Pourquoi le projet en a besoin (une phrase)' },
+    env_vars: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'NOMS des variables d’environnement secrètes (ex. STRIPE_API_KEY) — JAMAIS leurs valeurs',
+    },
+  },
+  required: ['key', 'kind', 'label', 'required', 'why', 'env_vars'],
+  additionalProperties: false,
+};
 
 export const CadrageReplyZ = z.object({
   reply_markdown: z.string().min(1),
   open_questions: z.array(z.string()),
   ready_for_spec: z.boolean(),
+  suggested_size: SizeFieldZ,
+  size_rationale: z.string().default(''),
+  access_requirements: z.array(AccessRequirementZ).max(12).default([]),
 });
 export type CadrageReply = z.infer<typeof CadrageReplyZ>;
 
@@ -15,14 +51,27 @@ export const CADRAGE_JSON_SCHEMA = {
     reply_markdown: { type: 'string', description: 'Réponse au message utilisateur, en markdown, en français' },
     open_questions: { type: 'array', items: { type: 'string' }, description: 'Questions encore ouvertes (max 5)' },
     ready_for_spec: { type: 'boolean', description: 'true quand tu as assez d’éléments pour rédiger la spécification' },
+    suggested_size: {
+      type: 'string',
+      enum: SIZE_ENUM,
+      description: 'Gabarit proposé: small | mvp | large | enterprise ("" tant que ce n’est pas tranché)',
+    },
+    size_rationale: { type: 'string', description: 'Une phrase justifiant le gabarit proposé' },
+    access_requirements: {
+      type: 'array',
+      items: ACCESS_REQUIREMENT_JSON_SCHEMA,
+      description: 'Inventaire COMPLET des accès nécessaires, réénoncé à chaque tour (liste vide si aucun)',
+    },
   },
-  required: ['reply_markdown', 'open_questions', 'ready_for_spec'],
+  required: ['reply_markdown', 'open_questions', 'ready_for_spec', 'suggested_size', 'size_rationale', 'access_requirements'],
   additionalProperties: false,
 };
 
 export const SpecOutputZ = z.object({
   title: z.string().min(1).max(120),
   spec_markdown: z.string().min(50),
+  size: SizeFieldZ,
+  access_requirements: z.array(AccessRequirementZ).max(12).default([]),
 });
 export type SpecOutput = z.infer<typeof SpecOutputZ>;
 
@@ -31,8 +80,14 @@ export const SPEC_JSON_SCHEMA = {
   properties: {
     title: { type: 'string', description: 'Titre court du projet' },
     spec_markdown: { type: 'string', description: 'Spécification complète en markdown, en français' },
+    size: { type: 'string', enum: SIZE_ENUM, description: 'Gabarit du projet: small | mvp | large | enterprise' },
+    access_requirements: {
+      type: 'array',
+      items: ACCESS_REQUIREMENT_JSON_SCHEMA,
+      description: 'Inventaire final des accès nécessaires (liste vide si aucun)',
+    },
   },
-  required: ['title', 'spec_markdown'],
+  required: ['title', 'spec_markdown', 'size', 'access_requirements'],
   additionalProperties: false,
 };
 
@@ -89,8 +144,13 @@ export const BreakdownTaskZ = z.object({
   title: z.string().min(1).max(160),
   description: z.string(),
   files_hint: z.array(z.string()),
+  /** Optional with a default: revision/micro breakdowns and recorded fixtures predate it. */
+  writes: z.array(z.string()).default([]),
   acceptance: z.array(z.string()).min(1),
   depends_on: z.array(z.string()),
+  /** Ordering relations; optional with a default so revision/micro breakdowns still parse. */
+  after: z.array(z.string()).default([]),
+  phase: z.enum(TASK_PHASES).default(DEFAULT_TASK_PHASE),
 });
 
 export const BreakdownOutputZ = z.object({
@@ -109,11 +169,31 @@ export const BREAKDOWN_JSON_SCHEMA = {
           task_key: { type: 'string', pattern: '^T[0-9]{2}$', description: 'T01, T02, …' },
           title: { type: 'string' },
           description: { type: 'string' },
-          files_hint: { type: 'array', items: { type: 'string' } },
+          files_hint: { type: 'array', items: { type: 'string' }, description: 'Fichiers probablement LUS par la tâche' },
+          writes: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Chemins EXACTS que la tâche va créer ou modifier — deux tâches parallélisables n’en partagent aucun',
+          },
           acceptance: { type: 'array', items: { type: 'string' }, description: 'Critères vérifiables par des tests' },
-          depends_on: { type: 'array', items: { type: 'string' }, description: 'Clés de tâches antérieures' },
+          depends_on: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Dépendances de CONTRAT: la tâche ne peut pas être écrite sans ces sorties (export, schéma, fichier)',
+          },
+          after: {
+            type: 'array',
+            items: { type: 'string' },
+            description:
+              'Relations d’ORDRE: la tâche pourrait techniquement démarrer mais ne DOIT pas commencer avant que ces tâches soient terminées (travail qui serait à refaire)',
+          },
+          phase: {
+            type: 'string',
+            enum: [...TASK_PHASES],
+            description: 'Étape produit: foundation (socle) | core (fonctionnalités) | polish (animations, transitions, finition)',
+          },
         },
-        required: ['task_key', 'title', 'description', 'files_hint', 'acceptance', 'depends_on'],
+        required: ['task_key', 'title', 'description', 'files_hint', 'writes', 'acceptance', 'depends_on', 'after', 'phase'],
         additionalProperties: false,
       },
     },
