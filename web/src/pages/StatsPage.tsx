@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { StatsDto } from '@pjgen/shared';
 import { api } from '../api/client.js';
-import { fmtCount, tokensTitle } from '../lib/format.js';
+import { effectiveTokens, fmtCount, tokensTitle } from '../lib/format.js';
 import { STEP_LABELS, T } from '../i18n/fr.js';
 import type { StepKey } from '@pjgen/shared';
 
@@ -17,7 +17,7 @@ export function StatsPage() {
   if (!stats) return <div className="text-sm text-zinc-500">{T.loading}</div>;
 
   const empty = !stats.days.length && !stats.perStep.length;
-  const maxDay = Math.max(1, ...stats.days.map((d) => d.tokens.total));
+  const maxDay = Math.max(1, ...stats.days.map((d) => effectiveTokens(d.tokens)));
   const maxStep = Math.max(1, ...stats.perStep.map((s) => s.totalTokens));
 
   return (
@@ -41,10 +41,10 @@ export function StatsPage() {
           <div className="flex h-40 items-end gap-1.5">
             {stats.days.map((d) => (
               <div key={d.day} className="group flex min-w-0 flex-1 flex-col items-center gap-1" title={`${d.day} — ${tokensTitle(d.tokens)}`}>
-                <span className="text-[10px] text-zinc-500 opacity-0 transition-opacity group-hover:opacity-100">{fmtCount(d.tokens.total)}</span>
+                <span className="text-[10px] text-zinc-500 opacity-0 transition-opacity group-hover:opacity-100">{fmtCount(effectiveTokens(d.tokens))}</span>
                 <div
                   className="w-full rounded-t bg-indigo-500/80 transition-colors group-hover:bg-indigo-400"
-                  style={{ height: `${Math.max(3, Math.round((d.tokens.total / maxDay) * 120))}px` }}
+                  style={{ height: `${Math.max(3, Math.round((effectiveTokens(d.tokens) / maxDay) * 120))}px` }}
                 />
                 <span className="truncate text-[10px] text-zinc-500">{d.day.slice(5)}</span>
               </div>

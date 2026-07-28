@@ -14,6 +14,7 @@ export interface Capabilities {
   hasSettingSources: boolean;
   hasForkSession: boolean;
   hasMaxTurns: boolean;
+  hasAgents: boolean;
 }
 
 export const FAKE_CAPABILITIES: Capabilities = {
@@ -27,6 +28,7 @@ export const FAKE_CAPABILITIES: Capabilities = {
   hasSettingSources: true,
   hasForkSession: true,
   hasMaxTurns: false,
+  hasAgents: true,
 };
 
 /** Tested CLI range; outside it we still run but surface a warning banner. */
@@ -54,6 +56,7 @@ export async function probeCapabilities(claudeBin: string): Promise<Capabilities
       hasSettingSources: has('--setting-sources'),
       hasForkSession: has('--fork-session'),
       hasMaxTurns: has('--max-turns'),
+      hasAgents: has('--agents <json>'),
     };
   } catch (err) {
     return {

@@ -43,11 +43,12 @@ export class UsageRepo {
     return rows.map((r) => ({ day: r.day, tokens: tokensOf(r) }));
   }
 
+  /** Effective tokens (cache reads excluded — they are re-counted at every turn and would dwarf real usage). */
   statsPerProject(limit = 10): StatsDto['perProject'] {
     return this.db
       .prepare(
         `SELECT p.slug, p.title,
-                SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens) AS total
+                SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens) AS total
          FROM usage_log u JOIN projects p ON p.id = u.project_id
          GROUP BY u.project_id ORDER BY total DESC LIMIT ?`
       )
@@ -66,12 +67,13 @@ export class UsageRepo {
     return r.total > 0 ? r.read / r.total : null;
   }
 
-  /** Per-step averages come from step_runs (they carry step_key), not usage_log. */
+  /** Per-step averages come from step_runs (they carry step_key), not usage_log.
+   *  Effective tokens only (cache reads excluded); the "has data" filter keeps all four columns. */
   statsPerStep(): StatsDto['perStep'] {
     const rows = this.db
       .prepare(
         `SELECT step_key AS stepKey, COUNT(*) AS runs,
-                SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) AS totalTokens
+                SUM(input_tokens + output_tokens + cache_creation_tokens) AS totalTokens
          FROM step_runs
          WHERE input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens > 0
          GROUP BY step_key ORDER BY totalTokens DESC`

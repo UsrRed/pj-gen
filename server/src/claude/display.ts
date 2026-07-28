@@ -61,9 +61,10 @@ export function displayForEvent(evt: ClaudeEvent): string | null {
       const turns = typeof evt.num_turns === 'number' ? ` — ${evt.num_turns} tours` : '';
       const u = evt.usage as Record<string, unknown> | undefined;
       const num = (k: string) => (typeof u?.[k] === 'number' ? (u[k] as number) : 0);
-      const total = num('input_tokens') + num('output_tokens') + num('cache_creation_input_tokens') + num('cache_read_input_tokens');
-      const tokens = total
-        ? ` — ${fmtK(total)} tokens (in ${fmtK(num('input_tokens'))} · out ${fmtK(num('output_tokens'))} · cache ${fmtK(num('cache_creation_input_tokens') + num('cache_read_input_tokens'))})`
+      // Headline = effective tokens (cache reads are re-counted every turn and would dwarf real usage).
+      const effective = num('input_tokens') + num('output_tokens') + num('cache_creation_input_tokens');
+      const tokens = effective || num('cache_read_input_tokens')
+        ? ` — ${fmtK(effective)} tokens (in ${fmtK(num('input_tokens'))} · out ${fmtK(num('output_tokens'))} · cache écrit ${fmtK(num('cache_creation_input_tokens'))} · cache lu ${fmtK(num('cache_read_input_tokens'))})`
         : typeof evt.total_cost_usd === 'number'
           ? ` — $${evt.total_cost_usd.toFixed(4)}`
           : '';

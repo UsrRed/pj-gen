@@ -6,16 +6,22 @@ export function fmtCount(n: number): string {
   return `${(n / 1_000_000).toFixed(2).replace('.', ',').replace(/,?0+$/, '')}M`;
 }
 
+/** Effective consumption: fresh input + output + cache writes. Cache re-reads (~96 % of the raw
+ *  cumulative total, recounted at every agent turn) are excluded — they don't reflect real usage. */
+export function effectiveTokens(t: TokenUsage): number {
+  return t.input + t.output + t.cacheCreation;
+}
+
 // `t` may be undefined: replayed SSE events recorded before the tokens migration carry old DTO shapes.
 export function fmtTokens(t: TokenUsage | null | undefined): string {
   if (!t?.total) return '—';
-  return fmtCount(t.total);
+  return fmtCount(effectiveTokens(t));
 }
 
 /** Native tooltip text with the in/out/cache breakdown. */
 export function tokensTitle(t: TokenUsage | null | undefined): string {
   if (!t?.total) return 'Aucune donnée de tokens (runs antérieurs à cette version)';
-  return `entrée ${fmtCount(t.input)} · sortie ${fmtCount(t.output)} · cache écrit ${fmtCount(t.cacheCreation)} · cache lu ${fmtCount(t.cacheRead)}`;
+  return `entrée ${fmtCount(t.input)} · sortie ${fmtCount(t.output)} · cache écrit ${fmtCount(t.cacheCreation)} · cache lu ${fmtCount(t.cacheRead)} — cumul brut avec cache : ${fmtCount(t.total)}`;
 }
 
 export function fmtTime(epochMs: number | null | undefined): string {

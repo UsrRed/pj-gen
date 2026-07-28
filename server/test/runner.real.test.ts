@@ -130,6 +130,38 @@ echo '{"type":"result","subtype":"success","is_error":false,"num_turns":60,"resu
     expect(result.failure?.message).toContain('Cap');
   });
 
+  it('accumulates usage across MULTIPLE result events (background subagent auto-resume)', async () => {
+    const base = tmpDir('runner');
+    // Verified CLI 2.1.214: a background subagent (--agents + Task) lets the main loop
+    // emit result #1, then completion auto-resumes it → result #2. Each result carries
+    // only its own segment's usage/num_turns — the runner must sum them, and keep the
+    // LAST result's text as the final answer.
+    const bin = makeFakeClaude(
+      base,
+      'claude-double-result',
+      `
+echo '{"type":"system","subtype":"init","session_id":"s-4","model":"m"}'
+echo '{"type":"assistant","message":{"id":"msg_1","content":[{"type":"text","text":"je délègue au lecteur"}]}}'
+echo '{"type":"result","subtype":"success","is_error":false,"num_turns":2,"result":"le lecteur travaille","total_cost_usd":0.01,"usage":{"input_tokens":17,"output_tokens":597,"cache_creation_input_tokens":8780,"cache_read_input_tokens":48388}}'
+echo '{"type":"assistant","message":{"id":"msg_2","content":[{"type":"text","text":"réponse finale"}]}}'
+echo '{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"signature: runToolStep(ctx, o)","total_cost_usd":0.002,"usage":{"input_tokens":10,"output_tokens":161,"cache_creation_input_tokens":922,"cache_read_input_tokens":28995}}'
+`
+    );
+    const config = testConfig(base, { claudeBin: bin, fakeCli: false });
+    const run = createRealRunner(config, FAKE_CAPABILITIES);
+    const result = await run(specFor(base, 10)).result;
+    expect(result.outcome).toBe('success');
+    expect(result.resultText).toBe('signature: runToolStep(ctx, o)');
+    expect(result.numTurns).toBe(3);
+    expect(result.costUsd).toBeCloseTo(0.012);
+    expect(result.usage).toEqual({
+      inputTokens: 27,
+      outputTokens: 758,
+      cacheCreationTokens: 9702,
+      cacheReadTokens: 77383,
+    });
+  });
+
   it('cancel() terminates the process and classifies as canceled', async () => {
     const base = tmpDir('runner');
     const bin = makeFakeClaude(

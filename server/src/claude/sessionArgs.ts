@@ -1,5 +1,6 @@
 import path from 'node:path';
 import type { Config } from '../config.js';
+import { READER_AGENTS } from '../prompts/common.js';
 import type { Capabilities } from './capabilities.js';
 import type { SessionSpec } from './types.js';
 
@@ -55,6 +56,9 @@ export function buildArgs(spec: SessionSpec, caps: Capabilities): string[] {
     argv.push('--tools', spec.tools.join(','), '--dangerously-skip-permissions');
   } else {
     argv.push('--dangerously-skip-permissions');
+    // Full-autonomy sessions get the Haiku reconnaissance subagent: big-file answers
+    // stay out of the main transcript, which is cache-re-read at every turn.
+    if (caps.hasAgents) argv.push('--agents', JSON.stringify(READER_AGENTS));
   }
 
   if (caps.hasSettingSources) argv.push('--setting-sources', 'project,local');

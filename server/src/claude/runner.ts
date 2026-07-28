@@ -32,6 +32,13 @@ export function createRealRunner(config: Config, caps: Capabilities) {
     let killedReason: 'timeout' | 'canceled' | null = null;
     let spawnError: string | null = null;
     let resultEvent: ClaudeEvent | null = null;
+    // A single invocation can emit SEVERAL `result` events (verified CLI 2.1.214): a
+    // background subagent lets the main loop end its turn (result #1), then completion
+    // auto-resumes it (result #2). Each result's usage/num_turns/cost covers only its
+    // OWN segment — keeping just the last event would drop the earlier segments.
+    const usageAcc: RunUsage = { ...ZERO_USAGE };
+    let resultTurns = 0;
+    let resultCostUsd = 0;
     let lastAssistantText = '';
     let actualSessionId = spec.sessionId;
     // Logical turns: the stream emits one `assistant` event PER CONTENT BLOCK
@@ -111,7 +118,14 @@ export function createRealRunner(config: Config, caps: Capabilities) {
         if (text.trim()) lastAssistantText = text;
         if (turns > spec.maxTurns) requestKill('timeout');
       } else if (evt.type === 'result') {
-        resultEvent = evt;
+        resultEvent = evt; // last one wins for text/structured/is_error (the final answer)
+        const u = usageOf(evt);
+        usageAcc.inputTokens += u.inputTokens;
+        usageAcc.outputTokens += u.outputTokens;
+        usageAcc.cacheCreationTokens += u.cacheCreationTokens;
+        usageAcc.cacheReadTokens += u.cacheReadTokens;
+        if (typeof evt.num_turns === 'number') resultTurns += evt.num_turns;
+        if (typeof evt.total_cost_usd === 'number') resultCostUsd += evt.total_cost_usd;
       } else if (evt.type === 'rate_limit_event' && evt.rate_limit_info) {
         lastRateLimitInfo = evt.rate_limit_info;
       }
@@ -140,9 +154,9 @@ export function createRealRunner(config: Config, caps: Capabilities) {
 
         const durationMs = Date.now() - startedAt;
         const resultText = String(resultEvent?.result ?? '');
-        const numTurns = typeof resultEvent?.num_turns === 'number' ? resultEvent.num_turns : turns;
-        const costUsd = typeof resultEvent?.total_cost_usd === 'number' ? resultEvent.total_cost_usd : 0;
-        const usage = usageOf(resultEvent);
+        const numTurns = resultTurns > 0 ? resultTurns : turns;
+        const costUsd = resultCostUsd;
+        const usage = usageAcc; // ZERO_USAGE copy when no result event arrived
 
         if (resultEvent && !resultEvent.is_error && !killedReason && !spawnError) {
           resolve({

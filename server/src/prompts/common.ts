@@ -6,7 +6,24 @@ export const LANGUAGE_RULES = `Langue: code, identifiants et messages de commit 
 
 export const SCOPE_RULES = `Périmètre: ne modifie rien en dehors du répertoire courant du projet.`;
 
-export const NAVIGATION_RULES = `Navigation: docs/ARCHITECTURE.md est la CARTE du dépôt — consulte-la pour localiser un fichier au lieu de chercher. INTERDIT: grep/rg récursif sur tout le dépôt, find global, listing/lecture de répertoires entiers. docs/INTERFACES.md recense les contrats d'interface clés (signatures, schémas API/WS, types partagés): consulte-le au lieu de rouvrir les sources pour retrouver une signature; si tu modifies un contrat, mets ce fichier à jour dans le même commit et note le changement dans docs/PROGRESS.md.`;
+export const NAVIGATION_RULES = `Navigation: docs/ARCHITECTURE.md est la CARTE du dépôt — consulte-la pour localiser un fichier au lieu de chercher. INTERDIT: grep/rg récursif sur tout le dépôt, find global, listing/lecture de répertoires entiers. docs/INTERFACES.md recense les contrats d'interface clés (signatures, schémas API/WS, types partagés): consulte-le au lieu de rouvrir les sources pour retrouver une signature; si tu modifies un contrat, mets ce fichier à jour dans le même commit et note le changement dans docs/PROGRESS.md. Pour comprendre un GROS fichier (>~300 lignes) que tu ne vas PAS modifier, délègue au sous-agent "lecteur" (outil Task, quand il est disponible) avec une question précise au lieu de le lire en entier — sa réponse tient en quelques lignes dans ton contexte. JAMAIS pour un fichier que tu vas éditer (tu as besoin du texte exact), ni pour les docs/*.md de référence (petits, à lire en entier). Si la réponse du lecteur est insuffisante ou douteuse, lis le fichier toi-même.`;
+
+/**
+ * Read-only reconnaissance subagent injected via --agents into every full-autonomy
+ * session. Purpose: answers a precise question about a large file so its full content
+ * never enters the main transcript (which is re-read from cache at every turn).
+ * Haiku: extraction/citation only — anything requiring judgment stays in the main model.
+ */
+export const READER_AGENTS = {
+  lecteur: {
+    description:
+      "Répond à une question précise sur le contenu d'un ou plusieurs gros fichiers du dépôt (localiser une logique, extraire des signatures ou une section) en n'en rapportant que l'essentiel. Reconnaissance uniquement — jamais pour un fichier que l'appelant va modifier.",
+    prompt:
+      "Tu es un lecteur de code. On te pose une question précise sur un ou plusieurs fichiers: lis-les et réponds avec UNIQUEMENT ce qui est demandé — extraits exacts pertinents cités textuellement avec chemin:ligne, signatures, structure. N'invente rien, ne paraphrase pas le code quand une citation est demandée. Si l'information est absente des fichiers, dis-le explicitement au lieu de deviner. Réponse courte et dense.",
+    tools: ['Read', 'Grep', 'Glob'],
+    model: 'haiku',
+  },
+} as const;
 
 export const PROCESS_HYGIENE_RULES = `Processus: n'utilise JAMAIS pkill, killall ni aucun kill par motif de nom (l'orchestrateur qui t'a lancé tourne sur cette machine via "tsx src/index.ts" — un pkill -f tsx/node/server/vite le tue, ainsi que les autres builds). Pour arrêter un process que tu as lancé: mémorise son PID ($!) et fais kill $PID. Pour libérer un port: kill $(lsof -ti:PORT). Lance tes serveurs de dev sur des ports dédiés et arrête-les par PID ou par port, jamais par nom.`;
 

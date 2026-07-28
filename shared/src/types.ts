@@ -6,7 +6,8 @@ export interface TokenUsage {
   output: number;
   cacheCreation: number;
   cacheRead: number;
-  /** input + output + cacheCreation + cacheRead */
+  /** input + output + cacheCreation + cacheRead — raw cumulative sum; the UI headline shows the
+   *  effective figure (without cacheRead), this raw total feeds the 5h-window gauge and tooltips. */
   total: number;
 }
 
@@ -203,7 +204,9 @@ export interface QuotaDto {
 
 export interface StatsDto {
   days: { day: string; tokens: TokenUsage }[];
+  /** totalTokens/avgTokens are EFFECTIVE tokens (input + output + cacheCreation, cache reads excluded). */
   perStep: { stepKey: string; runs: number; totalTokens: number; avgTokens: number }[];
+  /** total is EFFECTIVE tokens (cache reads excluded). */
   perProject: { slug: string; title: string; total: number }[];
   /** All-time prompt-cache hit rate: cacheRead / (input + cacheRead + cacheCreation). Null when no data. */
   cacheRate: number | null;

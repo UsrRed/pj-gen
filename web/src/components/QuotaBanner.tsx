@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from '../store/useStore.js';
 import { api } from '../api/client.js';
-import { fmtCount, fmtDateTime, fmtTime, fmtTokens, tokensTitle } from '../lib/format.js';
+import { fmtCount, fmtDateTime, fmtTime, tokensTitle } from '../lib/format.js';
 import { T } from '../i18n/fr.js';
 import { ConfirmButton } from './ConfirmButton.js';
 import { CutModal } from './CutModal.js';
@@ -21,6 +21,8 @@ function WindowGauge({ onScheduleCut }: { onScheduleCut: () => void }) {
 
   const w = quota?.window;
   if (!w) return null;
+  // Raw total (cache reads included) on purpose: estimatedCeiling is the median of the same
+  // raw total observed at limit hits — the gauge must compare like with like.
   const consumed = w.tokensInWindow.total;
 
   const pct = w.estimatedCeiling ? Math.min(100, Math.round((consumed / w.estimatedCeiling) * 100)) : null;
@@ -30,7 +32,7 @@ function WindowGauge({ onScheduleCut }: { onScheduleCut: () => void }) {
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-4 py-2 text-xs text-zinc-400">
       <div className="flex items-center justify-between gap-3">
         <span title={tokensTitle(w.tokensInWindow)}>
-          {consumed ? T.windowGauge(fmtTokens(w.tokensInWindow)) : T.windowNoData}
+          {consumed ? T.windowGauge(fmtCount(consumed)) : T.windowNoData}
           {pct !== null && w.estimatedCeiling && <span className="text-zinc-500"> · {T.windowCeiling(fmtCount(w.estimatedCeiling), pct)}</span>}
         </span>
         <span className="flex shrink-0 items-center gap-3">
