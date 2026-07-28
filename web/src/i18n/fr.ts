@@ -170,6 +170,17 @@ export const T = {
   ghTitle: 'Dépôts GitHub',
   ghNotAuth: 'GitHub CLI non connecté — exécute `gh auth login` sur la machine puis actualise.',
   ghNotInstalled: 'GitHub CLI introuvable — installe `gh` (https://cli.github.com) puis actualise.',
+  ghSetupHint: 'À exécuter sur la machine qui héberge pj-gen, puis clique sur « Actualiser » :',
+  ghSetupInstallCmd: `# Debian / Ubuntu — installe le GitHub CLI puis connecte-toi
+type -p curl >/dev/null || sudo apt install curl -y
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+sudo chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+sudo apt update && sudo apt install gh -y
+gh auth login
+# macOS : brew install gh && gh auth login`,
+  ghSetupAuthCmd: 'gh auth login',
+  ghCopyCmd: 'Copier',
   ghConnectedAs: (login: string) => `Connecté en tant que ${login}`,
   ghRefresh: 'Actualiser',
   ghLinked: 'Projets liés',

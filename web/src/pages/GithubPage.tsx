@@ -7,6 +7,33 @@ import { Spinner } from '../components/ConfirmButton.js';
 import { T } from '../i18n/fr.js';
 import { DECISION_STYLE } from '../components/badges.js';
 
+function CommandBlock({ command }: { command: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      const el = document.getElementById('pjgen-gh-setup-cmd');
+      if (el) window.getSelection()?.selectAllChildren(el);
+    }
+  };
+  return (
+    <div className="mt-2 space-y-1.5">
+      <p className="text-xs opacity-80">{T.ghSetupHint}</p>
+      <div className="relative">
+        <pre id="pjgen-gh-setup-cmd" className="max-w-full select-all overflow-x-auto rounded bg-zinc-950 px-3 py-2 pr-20 font-mono text-xs leading-relaxed text-zinc-300">
+          {command}
+        </pre>
+        <button className="btn-ghost !absolute !right-1.5 !top-1.5 !px-2 !py-0.5 !text-xs" onClick={() => void copy()}>
+          {copied ? T.copied : `📋 ${T.ghCopyCmd}`}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function LinkedRepoCard({ repo, onAction, busy }: { repo: GithubRepoView; onAction: (name: string, fn: () => Promise<unknown>) => void; busy: string | null }) {
   const [message, setMessage] = useState('');
   const stable = repo.projectStatus !== 'building' && repo.projectStatus !== 'deploying';
@@ -171,6 +198,7 @@ export function GithubPage() {
         <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
           {status.installed ? T.ghNotAuth : T.ghNotInstalled}
           {status.detail && <div className="mt-1 text-xs opacity-70">{status.detail}</div>}
+          <CommandBlock command={status.installed ? T.ghSetupAuthCmd : T.ghSetupInstallCmd} />
         </div>
       )}
 
