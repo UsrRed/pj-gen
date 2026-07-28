@@ -1,4 +1,4 @@
-import type { FailureKind, ModelName, PipelineMode, ProjectStatus, StepKey, StepRunStatus, TaskStatus } from './statuses.js';
+import type { FailureKind, ModelName, PipelineMode, ProjectSize, ProjectStatus, StepKey, StepRunStatus, TaskPhase, TaskStatus } from './statuses.js';
 
 /** Token consumption of a run/project — what actually drives the subscription 5h limit. */
 export interface TokenUsage {
@@ -27,6 +27,10 @@ export interface ProjectSummary {
   title: string;
   status: ProjectStatus;
   model: ModelName | null;
+  /** Size tier; null = not decided yet (auto). Frozen at spec validation. */
+  size: ProjectSize | null;
+  /** 'user' (explicit choice, wins over everything), 'cadrage' (proposed), 'default'. */
+  sizeSource: 'user' | 'cadrage' | 'default' | null;
   /** Build/improvement cycle number: 1 = initial build, 2+ = reopened iterations. */
   iteration: number;
   workspacePath: string;
@@ -53,11 +57,22 @@ export interface TaskDto {
   position: number;
   title: string;
   description: string;
+  /** Paths the task will likely READ — a hint, not a commitment. */
   filesHint: string[];
+  /** Paths the task COMMITS to writing. Two tasks batch in parallel only if these are disjoint. */
+  writes: string[];
   acceptance: string[];
+  /** CONTRACT dependencies: the task cannot be written without these outputs existing. */
   dependsOn: string[];
+  /** ORDERING dependencies: the task could technically run, but shouldn't run before these
+   *  are done (doing polish work on a half-built feature means redoing it). */
+  after: string[];
+  /** Product maturity stage; every task of an earlier phase must be done first. */
+  phase: TaskPhase;
   status: TaskStatus;
   commitSha: string | null;
+  /** Set while the task runs in its own git worktree (parallel batch). */
+  worktreeDir?: string | null;
 }
 
 export interface StepRunDto {
@@ -76,6 +91,10 @@ export interface StepRunDto {
   errorMessage: string | null;
   startedAt: number | null;
   endedAt: number | null;
+  /** Wall-clock of the claude session (null on rows predating the timing migration). */
+  durationMs: number | null;
+  /** Wall-clock of the stack verification that followed the session. */
+  verifyMs: number | null;
 }
 
 export interface ChatMessageDto {
@@ -91,6 +110,9 @@ export interface ChatMessageDto {
 export interface CadrageStructured {
   open_questions?: string[];
   ready_for_spec?: boolean;
+  /** Size tier the cadrage session proposes, with its one-line justification. */
+  suggested_size?: ProjectSize;
+  size_rationale?: string;
 }
 
 export type MicroRequestStatus = 'pending' | 'task_created' | 'done' | 'failed' | 'needs_clarification';
@@ -133,7 +155,13 @@ export interface NotifyEvents {
 }
 
 export interface SettingsDto {
+  /** Max projects building at once. */
   maxConcurrentBuilds: number;
+  /** Max concurrent build `claude -p` processes overall — the real resource ceiling once
+   *  a single project runs several tasks in parallel. Cadrage/deploy sessions are exempt. */
+  maxConcurrentSessions: number;
+  /** Max tasks implemented in parallel within one project (1 = the serial path). */
+  taskParallelism: number;
   defaultModel: ModelName;
   autoResumeOnBoot: boolean;
   skipTestHardening: boolean;
@@ -152,6 +180,17 @@ export interface SettingsDto {
   notifyEvents: NotifyEvents;
   /** Expose the UI/API on the local network (no auth — trusted LAN only). */
   exposeLan: boolean;
+  /** Per-tier overrides of the built-in size profiles (task budget, cap multiplier, parallelism). */
+  sizeProfiles: Partial<Record<ProjectSize, SizeProfileOverride>>;
+}
+
+/** Operator-tunable slice of a size profile; anything omitted keeps the built-in value. */
+export interface SizeProfileOverride {
+  maxTasks?: number;
+  maxTasksRevision?: number;
+  capMultiplier?: number;
+  taskParallelism?: number;
+  skipSteps?: StepKey[];
 }
 
 /** Live state of the LAN exposure proxy. */
@@ -210,6 +249,10 @@ export interface StatsDto {
   perProject: { slug: string; title: string; total: number }[];
   /** All-time prompt-cache hit rate: cacheRead / (input + cacheRead + cacheCreation). Null when no data. */
   cacheRate: number | null;
+  /** Wall-clock per step: where the build time actually goes. Rows predating the timing migration are excluded. */
+  timePerStep: { stepKey: string; runs: number; medianMs: number; p90Ms: number; totalMs: number; verifyMs: number }[];
+  /** Wall-clock summed per project (sessions only — queue waits and quota parks are not counted). */
+  timePerProject: { slug: string; title: string; totalMs: number; runs: number }[];
 }
 
 /** State of a generated project's app process (Aperçu tab). */

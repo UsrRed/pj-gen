@@ -1,4 +1,4 @@
-import type { ProjectStatus, StepKey } from '@pjgen/shared';
+import type { AccessKind, AccessStatus, ProjectSize, ProjectStatus, StepKey, TaskPhase } from '@pjgen/shared';
 
 export const STATUS_LABELS: Record<ProjectStatus, string> = {
   draft: 'Cadrage',
@@ -49,6 +49,63 @@ export const STEP_LABELS: Record<StepKey, string> = {
   micro: 'Micro-modification',
 };
 
+/** Project size tiers: label, one-line hint, badge styling. */
+export const SIZE_LABELS: Record<ProjectSize, string> = {
+  small: 'Petit projet',
+  mvp: 'MVP',
+  large: 'Gros projet',
+  enterprise: 'Entreprise',
+};
+
+export const SIZE_HINTS: Record<ProjectSize, string> = {
+  small: 'Script, page unique, outil ciblé — 1 à 2 fonctionnalités. Saute le benchmark design et le durcissement des tests.',
+  mvp: 'Produit minimal utilisable de bout en bout — 3 à 6 fonctionnalités. Le pipeline complet, budgets standards.',
+  large: 'Produit fini et robuste — modularité, gestion d’erreurs, tests d’intégration. Budgets élargis.',
+  enterprise: 'Auth, migrations, observabilité, CI, documentation d’exploitation. Budgets maximaux, opus sur les étapes de conception.',
+};
+
+export const SIZE_BADGES: Record<ProjectSize, string> = {
+  small: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+  mvp: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+  large: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  enterprise: 'bg-violet-500/15 text-violet-300 border-violet-500/30',
+};
+
+/** Task phases: the ordering barrier that keeps polish work from starting too early. */
+export const TASK_PHASE_LABELS: Record<TaskPhase, string> = {
+  foundation: 'socle',
+  core: 'cœur',
+  polish: 'finition',
+};
+
+export const TASK_PHASE_HINTS: Record<TaskPhase, string> = {
+  foundation: 'Socle: modèle de données, boucle principale, plomberie dont tout le reste dépend.',
+  core: 'Cœur: les fonctionnalités. À la fin de cette phase le produit doit être utilisable.',
+  polish: 'Finition: animations, transitions, micro-interactions — démarre seulement quand tout le reste est terminé.',
+};
+
+export const TASK_PHASE_STYLE: Record<TaskPhase, string> = {
+  foundation: 'bg-sky-500/15 text-sky-300',
+  core: 'bg-zinc-700/40 text-zinc-400',
+  polish: 'bg-violet-500/15 text-violet-300',
+};
+
+export const ACCESS_KIND_LABELS: Record<AccessKind, string> = {
+  ssh: 'Serveur SSH',
+  domain: 'Domaine',
+  database: 'Base de données',
+  api_key: 'Clé d’API',
+  smtp: 'SMTP',
+  object_storage: 'Stockage objet',
+  other: 'Autre',
+};
+
+export const ACCESS_STATUS_STYLE: Record<AccessStatus, string> = {
+  needed: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  provided: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+  skipped: 'bg-zinc-600/15 text-zinc-400 border-zinc-600/30',
+};
+
 /** Labels for every step-like key (pipeline steps + chat/session kinds) — settings tables. */
 export const ALL_STEP_LABELS: Record<string, string> = {
   cadrage: 'Cadrage',
@@ -96,6 +153,7 @@ export const T = {
   deployGateTitle: 'Prêt à déployer — approbation requise',
   deployGateDesc: 'Le pipeline est terminé et vérifié. Fournis les consignes de déploiement puis approuve pour lancer la session assistée.',
   tasks: 'Tâches',
+  taskWaitingFor: 'En attente de',
   logs: 'Logs',
   tokens: 'Tokens',
   turns: 'tours',
@@ -105,7 +163,42 @@ export const T = {
   save: 'Enregistrer',
   saved: 'Enregistré ✓',
   settingsTitle: 'Réglages',
+  // Gabarit de projet
+  sizeLabel: 'Taille du projet',
+  sizeAuto: 'Auto — laisser le cadrage décider',
+  sizeAutoHint:
+    'Le cadrage évaluera la taille et te la proposera. Le gabarit pilote le nombre de tâches, les budgets, les étapes du pipeline et le périmètre autorisé.',
+  sizeFrozen: 'Gabarit figé à la validation du SPEC',
+  sizeProposed: 'Gabarit proposé',
+  sizeApply: 'Appliquer',
+
+  // Accès & secrets
+  accessTitle: 'Accès & secrets',
+  accessSecurityNote:
+    'Les secrets ne sont jamais enregistrés en base ni dans la conversation : ils sont écrits directement dans le fichier .env du workspace (non versionné, permissions 600). Pour SSH, indique le chemin d’une clé locale — jamais la clé elle-même.',
+  accessEmpty: 'Aucun accès requis identifié pour l’instant — le cadrage les déclarera s’il y en a.',
+  accessRequired: 'obligatoire',
+  accessProvidedCount: 'fournis',
+  accessStatus: { needed: 'à fournir', provided: 'fourni', skipped: 'non nécessaire' } as Record<AccessStatus, string>,
+  accessSecretsTitle: 'Secrets (écrits dans .env, jamais relus)',
+  accessSecretPlaceholder: 'valeur secrète…',
+  accessSecretReplace: 'déjà défini — saisir pour remplacer',
+  accessSecretPresent: '✓ présent',
+  accessSave: 'Enregistrer',
+  accessSaveSecret: 'Écrire dans .env',
+  accessTest: 'Tester la connexion',
+  accessSkip: 'Non nécessaire',
+  accessUnskip: 'Rétablir',
+  refresh: 'Rafraîchir',
+
   sConcurrency: 'Constructions simultanées max',
+  sMaxSessions: 'Sessions claude simultanées max',
+  sMaxSessionsHint:
+    'Plafond global des sessions de construction (toutes constructions confondues). Le cadrage et le déploiement n’y sont pas soumis.',
+  parallelRuns: (n: number) => `⚡ ${n} sessions en parallèle :`,
+  sTaskParallelism: 'Tâches en parallèle par projet',
+  sTaskParallelismHint:
+    'Implémente plusieurs tâches indépendantes à la fois, chacune dans son propre arbre de travail git, fusionnées au fil de l’eau. 1 = exécution séquentielle. Le gabarit du projet peut réduire cette valeur.',
   sDefaultModel: 'Modèle par défaut',
   sAutoResume: 'Reprise automatique au démarrage',
   sSkipHardening: "Sauter l'étape de durcissement des tests",
@@ -247,6 +340,11 @@ gh auth login
   statsEmpty: 'Pas encore de données — lance un build !',
   statsCacheRate: 'Taux de cache prompt',
   statsCacheRateHint: 'Part des tokens d’entrée servie depuis le cache API (tous runs confondus) — plus c’est haut, moins les relectures coûtent.',
+  statsTimePerStep: 'Temps par étape du pipeline',
+  statsTimePerStepHint: 'Durée réelle des sessions, hors attente en file et hors parcage quota. « vérif » = install/build/test exécutés après la session.',
+  statsTimePerProject: 'Temps cumulé par projet',
+  statsMedian: 'médiane',
+  statsVerify: 'vérif',
   // Notifications
   sNotifySection: 'Notifications',
   sNotifyUrl: 'URL webhook (compatible ntfy.sh)',

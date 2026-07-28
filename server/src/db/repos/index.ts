@@ -12,6 +12,7 @@ import { UsageRepo } from './usage.js';
 import { AppRunsRepo } from './appRuns.js';
 import { MicroRepo } from './micro.js';
 import { IssuesRepo } from './issues.js';
+import { AccessRepo } from './access.js';
 
 export interface Repos {
   projects: ProjectsRepo;
@@ -27,6 +28,7 @@ export interface Repos {
   appRuns: AppRunsRepo;
   micro: MicroRepo;
   issues: IssuesRepo;
+  access: AccessRepo;
 }
 
 export function createRepos(db: DB): Repos {
@@ -44,6 +46,7 @@ export function createRepos(db: DB): Repos {
     appRuns: new AppRunsRepo(db),
     micro: new MicroRepo(db),
     issues: new IssuesRepo(db),
+    access: new AccessRepo(db),
   };
 }
 
@@ -53,6 +56,8 @@ export { toTaskDto } from './tasks.js';
 export { toMessageDto } from './messages.js';
 export { MicroRepo, toMicroDto } from './micro.js';
 export { IssuesRepo, toIssueDto } from './issues.js';
+export { AccessRepo, toAccessDto } from './access.js';
+export type { AccessRow } from './access.js';
 export type { IssueRow } from './issues.js';
 export type { ProjectRow } from './projects.js';
 export type { MicroRequestRow } from './micro.js';

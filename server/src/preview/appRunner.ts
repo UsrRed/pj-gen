@@ -3,6 +3,7 @@ import path from 'node:path';
 import { spawn, type ChildProcess } from 'node:child_process';
 import type { AppStateDto, StackInfo } from '@pjgen/shared';
 import type { CoreDeps } from '../core/deps.js';
+import { toolEnv } from '../core/toolEnv.js';
 
 const RING_MAX = 500;
 const LOG_FLUSH_MS = 300;
@@ -79,7 +80,9 @@ export class AppRunner {
       cwd: row.workspace_path,
       detached: true,
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+      // Shared caches speed up the first-run install; CI is left OFF on purpose —
+      // the preview IS a watching dev server.
+      env: { ...process.env, ...toolEnv(this.deps.config, { ci: false }), FORCE_COLOR: '0', NO_COLOR: '1' },
     });
     const pid = child.pid;
     if (!pid) throw new Error('Échec du lancement du process');

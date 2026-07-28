@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { StatsDto } from '@pjgen/shared';
 import { api } from '../api/client.js';
-import { effectiveTokens, fmtCount, tokensTitle } from '../lib/format.js';
+import { effectiveTokens, fmtCount, fmtSpan, tokensTitle } from '../lib/format.js';
 import { STEP_LABELS, T } from '../i18n/fr.js';
 import type { StepKey } from '@pjgen/shared';
 
@@ -19,6 +19,7 @@ export function StatsPage() {
   const empty = !stats.days.length && !stats.perStep.length;
   const maxDay = Math.max(1, ...stats.days.map((d) => effectiveTokens(d.tokens)));
   const maxStep = Math.max(1, ...stats.perStep.map((s) => s.totalTokens));
+  const maxStepTime = Math.max(1, ...stats.timePerStep.map((s) => s.totalMs));
 
   return (
     <div className="space-y-8">
@@ -65,6 +66,45 @@ export function StatsPage() {
                 </div>
                 <span className="w-44 shrink-0 text-right text-zinc-500">
                   {s.runs} {T.statsRuns} · {T.statsTotal} {fmtCount(s.totalTokens)} · {T.statsAvg} {fmtCount(s.avgTokens)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {stats.timePerStep.length > 0 && (
+        <section className="card p-4">
+          <h2 className="font-semibold text-zinc-300">{T.statsTimePerStep}</h2>
+          <p className="mb-3 mt-1 text-xs text-zinc-500">{T.statsTimePerStepHint}</p>
+          <div className="space-y-2">
+            {stats.timePerStep.map((s) => (
+              <div key={s.stepKey} className="flex items-center gap-3 text-xs">
+                <span className="w-40 shrink-0 truncate text-zinc-400">{STEP_LABELS[s.stepKey as StepKey] ?? s.stepKey}</span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-zinc-800">
+                  <div className="h-full rounded-full bg-amber-500/80" style={{ width: `${Math.max(2, Math.round((s.totalMs / maxStepTime) * 100))}%` }} />
+                </div>
+                <span className="w-64 shrink-0 text-right text-zinc-500">
+                  {s.runs} {T.statsRuns} · {T.statsTotal} {fmtSpan(s.totalMs)} · {T.statsMedian} {fmtSpan(s.medianMs)} · p90 {fmtSpan(s.p90Ms)}
+                  {s.verifyMs > 0 && ` · ${T.statsVerify} ${fmtSpan(s.verifyMs)}`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {stats.timePerProject.length > 0 && (
+        <section className="card p-4">
+          <h2 className="mb-3 font-semibold text-zinc-300">{T.statsTimePerProject}</h2>
+          <div className="space-y-1.5">
+            {stats.timePerProject.map((p) => (
+              <div key={p.slug} className="flex items-center justify-between gap-3 text-xs">
+                <span className="truncate text-zinc-300">
+                  {p.title} <span className="text-zinc-600">({p.slug})</span>
+                </span>
+                <span className="shrink-0 font-mono text-zinc-400">
+                  {fmtSpan(p.totalMs)} <span className="text-zinc-600">· {p.runs} {T.statsRuns}</span>
                 </span>
               </div>
             ))}

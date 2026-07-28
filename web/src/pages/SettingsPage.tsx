@@ -50,6 +50,34 @@ export function SettingsPage() {
             onChange={(e) => setForm({ ...form, maxConcurrentBuilds: Math.max(1, Math.min(4, Number(e.target.value) || 1)) })}
           />
         </label>
+        <label className="flex items-start justify-between gap-4 text-sm">
+          <span className="flex flex-col">
+            {T.sMaxSessions}
+            <span className="mt-0.5 text-xs text-zinc-500">{T.sMaxSessionsHint}</span>
+          </span>
+          <input
+            type="number"
+            min={1}
+            max={8}
+            className="input !w-24 shrink-0"
+            value={form.maxConcurrentSessions}
+            onChange={(e) => setForm({ ...form, maxConcurrentSessions: Math.max(1, Math.min(8, Number(e.target.value) || 1)) })}
+          />
+        </label>
+        <label className="flex items-start justify-between gap-4 text-sm">
+          <span className="flex flex-col">
+            {T.sTaskParallelism}
+            <span className="mt-0.5 text-xs text-zinc-500">{T.sTaskParallelismHint}</span>
+          </span>
+          <input
+            type="number"
+            min={1}
+            max={4}
+            className="input !w-24 shrink-0"
+            value={form.taskParallelism}
+            onChange={(e) => setForm({ ...form, taskParallelism: Math.max(1, Math.min(4, Number(e.target.value) || 1)) })}
+          />
+        </label>
         <label className="flex items-center justify-between gap-4 text-sm">
           <span>{T.sDefaultModel}</span>
           <select className="input !w-32" value={form.defaultModel} onChange={(e) => setForm({ ...form, defaultModel: e.target.value as ModelName })}>

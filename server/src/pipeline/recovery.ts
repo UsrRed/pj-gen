@@ -56,6 +56,14 @@ export function recoverOnBoot(deps: Omit<CoreDeps, 'sched'>): { orphanedRuns: nu
   let requeued = 0;
   let parked = 0;
   for (const project of repos.projects.byStatus(['building'])) {
+    // Worktrees of tasks that already landed are dead weight after a crash; the ones
+    // belonging to unfinished tasks are kept so their sessions can be resumed in place.
+    const keep = repos.tasks
+      .list(project.id)
+      .filter((t) => t.status !== 'done' && t.worktree_dir)
+      .map((t) => t.task_key);
+    void deps.wt.sweep(project.workspace_path, project.slug, keep).catch(() => undefined);
+
     const orphans = repos.stepRuns.orphanCount(project.id);
     if (settings.autoResumeOnBoot && orphans <= MAX_AUTO_RESUMES && !repos.settings.getGlobalPaused()) {
       if (sm.tryTransition(project.id, ['building'], 'queued')) requeued += 1;

@@ -27,6 +27,9 @@ export const defaultFakeScript: FakeScript = (spec) => {
             "Bien reçu ! (mode simulation)\n\nQuelques questions pour cadrer le projet :\n1. Qui sont les utilisateurs cibles ?\n2. As-tu une préférence de stack ?\n\nQuand tu es prêt, clique sur **Générer le SPEC**.",
           open_questions: ['Qui sont les utilisateurs cibles ?', 'Préférence de stack ?'],
           ready_for_spec: true,
+          suggested_size: 'mvp',
+          size_rationale: 'Périmètre simulé: produit minimal utilisable de bout en bout.',
+          access_requirements: [],
         },
       },
     };
@@ -64,6 +67,8 @@ export const defaultFakeScript: FakeScript = (spec) => {
           title: 'Projet simulé',
           spec_markdown:
             '# SPEC — Projet simulé\n\n## Objectif\nProjet de démonstration (mode simulation, aucun appel réel).\n\n## Fonctionnalités\n- F1: fonctionnalité principale — critère: ça marche.\n- F2: sortie utilisateur claire.\n\n## Hors périmètre\n- Tout le reste.',
+          size: 'mvp',
+          access_requirements: [],
         },
       },
     };
@@ -101,6 +106,9 @@ export const defaultFakeScript: FakeScript = (spec) => {
           title: 'Micro-modification simulée',
           description: 'Appliquer la petite modification demandée (simulation).',
           files_hint: ['src/cli.js'],
+          writes: ['src/cli.js'],
+          after: [],
+          phase: 'core',
           acceptance: ['le changement est visible (simulation)'],
         },
       },
@@ -168,9 +176,9 @@ body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--fg);margi
         outcome: 'success',
         structured: {
           tasks: [
-            { task_key: 'T01', title: 'Squelette CLI', description: 'Créer le point d’entrée CLI.', files_hint: ['src/cli.js'], acceptance: ['la commande s’exécute'], depends_on: [] },
-            { task_key: 'T02', title: 'Logique métier', description: 'Implémenter la fonctionnalité principale.', files_hint: ['src/core.js'], acceptance: ['tests unitaires verts'], depends_on: ['T01'] },
-            { task_key: 'T03', title: 'Sortie utilisateur', description: 'Formater la sortie.', files_hint: ['src/cli.js'], acceptance: ['sortie lisible'], depends_on: ['T02'] },
+            { task_key: 'T01', title: 'Squelette CLI', description: 'Créer le point d’entrée CLI.', files_hint: ['src/cli.js'], writes: ['src/cli.js'], acceptance: ['la commande s’exécute'], depends_on: [], after: [], phase: 'foundation' },
+            { task_key: 'T02', title: 'Logique métier', description: 'Implémenter la fonctionnalité principale.', files_hint: ['src/core.js'], writes: ['src/core.js'], acceptance: ['tests unitaires verts'], depends_on: ['T01'], after: [], phase: 'core' },
+            { task_key: 'T03', title: 'Sortie utilisateur', description: 'Formater la sortie.', files_hint: ['src/format.js'], writes: ['src/format.js'], acceptance: ['sortie lisible'], depends_on: ['T01'], after: [], phase: 'core' },
           ],
         },
       },
