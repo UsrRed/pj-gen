@@ -130,3 +130,35 @@ describe('parallel task implementation', () => {
     expect(c.repos.tasks.list(id).every((t) => t.status === 'done')).toBe(true);
   });
 });
+
+/**
+ * Regression (emeline/F2): when the worktree path cannot work, the task MUST be
+ * implemented in the main workspace. Before the fix the loop logged "reprise en série"
+ * and then rebuilt a batch containing the same task, failing identically forever — the
+ * feature was silently dropped while the rest of the build completed and shipped.
+ */
+describe('serial fallback when worktrees are unusable', () => {
+  it('still implements every task, through the main workspace', async () => {
+    const { c } = await testContainer({ script: fastScript(() => undefined) });
+    cRef = c;
+    c.repos.settings.set({ taskParallelism: 3, maxConcurrentSessions: 4 });
+    const id = await seedQueuedProject(c, 'Repli Serie');
+
+    // Make worktree creation fail deterministically and permanently: `.wt` is a FILE,
+    // so mkdir of the per-project root can never succeed.
+    fs.writeFileSync(path.join(c.config.workspaceRoot, '.wt'), 'pas un dossier');
+
+    c.scheduler.start();
+    await waitFor(() => c.repos.projects.byId(id)!.status === 'awaiting_deploy_approval', 25_000, 'pipeline complet');
+
+    const tasks = c.repos.tasks.list(id);
+    expect(tasks.length).toBe(3);
+    expect(tasks.every((t) => t.status === 'done')).toBe(true);
+    expect(tasks.every((t) => t.worktree_dir === null)).toBe(true);
+
+    const progress = fs.readFileSync(path.join(c.repos.projects.byId(id)!.workspace_path, 'docs/PROGRESS.md'), 'utf8');
+    expect(progress).toMatch(/arbre de travail indisponible/);
+    expect(progress).toMatch(/repris en série dans le workspace principal/);
+  });
+
+});

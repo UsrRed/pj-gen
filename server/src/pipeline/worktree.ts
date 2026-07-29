@@ -7,6 +7,26 @@ import type { Config } from '../config.js';
 const execFileP = promisify(execFile);
 
 /**
+ * Deletes a directory, tolerating a process that is still writing into it.
+ *
+ * `rmSync`'s `force` ignores ENOENT but NOT ENOTEMPTY: a build that recreates files
+ * between the readdir and the rmdir makes it throw. `maxRetries` retries exactly those
+ * errors (EBUSY/ENOTEMPTY/EPERM…) with a linear backoff. Returns false instead of
+ * throwing — the caller must still be able to clean up the branch and the registry.
+ */
+function rmDirRobust(dir: string): boolean {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    return !fs.existsSync(dir);
+  } catch {
+    return false;
+  }
+}
+
+/** Merge outcome. A git failure is NOT necessarily a content conflict — see merge(). */
+export type MergeOutcome = 'merged' | 'noop' | 'conflict' | 'error';
+
+/**
  * Git worktrees for parallel task implementation.
  *
  * Each task in a batch works on its own branch `pjgen/<taskKey>` in its own checkout,
@@ -60,9 +80,16 @@ export class WorktreeManager {
    */
   async ensure(workspace: string, slug: string, taskKey: string): Promise<string> {
     const dir = this.dirFor(slug, taskKey);
-    if (fs.existsSync(path.join(dir, '.git'))) {
-      await this.linkDeps(workspace, dir);
-      return dir;
+    if (fs.existsSync(dir)) {
+      if (fs.existsSync(path.join(dir, '.git'))) {
+        await this.linkDeps(workspace, dir);
+        return dir;
+      }
+      // Leftover from a removal that could not finish — typically a build process still
+      // writing into it (Next.js `.next`) when rmSync ran. Without clearing it here, the
+      // `worktree add` below fails with "already exists" on EVERY retry, and the task is
+      // requeued forever while the rest of the build happily moves on.
+      if (!rmDirRobust(dir)) throw new Error(`arbre de travail résiduel impossible à supprimer: ${dir}`);
     }
     fs.mkdirSync(this.root(slug), { recursive: true });
     // A stale registration (directory deleted under us) blocks `worktree add`.
@@ -114,17 +141,25 @@ export class WorktreeManager {
    * caller requeues the task to be re-run alone on the updated HEAD. Worst case the
    * build degrades to the serial behaviour it had before parallelism existed.
    */
-  async merge(workspace: string, taskKey: string, title: string): Promise<'merged' | 'conflict' | 'noop'> {
+  async merge(workspace: string, taskKey: string, title: string): Promise<{ outcome: MergeOutcome; detail: string }> {
     const branch = this.branchFor(taskKey);
     const before = await this.headSha(workspace);
     try {
       const { stdout } = await this.git(workspace, ['merge', '--no-ff', '-m', `merge(${taskKey}): ${title}`, branch]);
-      if (/already up to date|déjà à jour/i.test(stdout)) return 'noop';
+      if (/already up to date|déjà à jour/i.test(stdout)) return { outcome: 'noop', detail: 'déjà à jour' };
       const after = await this.headSha(workspace);
-      return after !== before ? 'merged' : 'noop';
-    } catch {
+      return after !== before ? { outcome: 'merged', detail: '' } : { outcome: 'noop', detail: 'aucun changement' };
+    } catch (err) {
+      // A failed `git merge` is not necessarily a content conflict: a dirty working tree
+      // or an unrelated git error fails the same way. Reporting everything as a conflict
+      // hid the real cause (an uncommitted docs/PROGRESS.md) behind a misleading message.
+      const unmerged = await this.git(workspace, ['ls-files', '--unmerged'])
+        .then((r) => r.stdout.trim().length > 0)
+        .catch(() => false);
+      const e = err as { stdout?: string; stderr?: string; message?: string };
+      const raw = `${e.stdout ?? ''}${e.stderr ?? ''}` || e.message || 'échec de fusion';
       await this.git(workspace, ['merge', '--abort']).catch(() => undefined);
-      return 'conflict';
+      return { outcome: unmerged ? 'conflict' : 'error', detail: raw.trim().slice(-400) };
     }
   }
 
@@ -137,13 +172,19 @@ export class WorktreeManager {
     }
   }
 
-  /** Removes one worktree and its branch. Safe to call when neither exists. */
-  async remove(workspace: string, slug: string, taskKey: string): Promise<void> {
+  /**
+   * Removes one worktree and its branch. Safe to call when neither exists, and never
+   * throws: the branch and registry cleanup MUST run even when the directory survives,
+   * otherwise the next ensure() finds a half-removed worktree it can never recreate.
+   * Returns false when the directory could not be deleted.
+   */
+  async remove(workspace: string, slug: string, taskKey: string): Promise<boolean> {
     const dir = this.dirFor(slug, taskKey);
     await this.git(workspace, ['worktree', 'remove', '--force', dir]).catch(() => undefined);
-    fs.rmSync(dir, { recursive: true, force: true });
+    const gone = rmDirRobust(dir);
     await this.git(workspace, ['branch', '-D', this.branchFor(taskKey)]).catch(() => undefined);
     await this.git(workspace, ['worktree', 'prune']).catch(() => undefined);
+    return gone;
   }
 
   /** Drops every worktree except those whose task key is in `keep`. */

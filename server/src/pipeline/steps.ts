@@ -586,8 +586,15 @@ export function topoOrder(tasks: TaskDto[]): TaskDto[] {
   return out.length === tasks.length ? out : [...tasks].sort(rank);
 }
 
-/** Outcome of one task inside a parallel batch. `requeued` = degrade to serial next round. */
+/** Outcome of one task inside a parallel batch. `requeued` = must be retried serially. */
 type TaskOutcome = StepFlow | { status: 'requeued' };
+
+/**
+ * A requeued task is retried at most this many times before the step gives up on it.
+ * Without a bound, a task that can never be merged is silently skipped forever while the
+ * loop keeps progressing on the others — the build looks healthy and ships without it.
+ */
+const MAX_REQUEUES = 2;
 
 export async function stepImplementTasks(ctx: StepCtx): Promise<StepFlow> {
   const { repos, ws, bus, config, pool } = ctx.deps;
@@ -596,6 +603,13 @@ export async function stepImplementTasks(ctx: StepCtx): Promise<StepFlow> {
   if (!repos.tasks.list(ctx.projectId).length) return { status: 'failed', message: 'aucune tâche définie' };
   // Frozen interface contracts, injected instead of letting each task re-read the sources.
   const interfacesExcerpt = ws.readFile(ctx.workspace, 'docs/INTERFACES.md')?.content.slice(0, 8_000);
+
+  // Tasks whose worktree run failed for a reason a retry in a batch cannot fix (no
+  // worktree available, merge refused, post-merge regression). They are re-run in the
+  // MAIN workspace, which always works — this is the serial fallback that was only
+  // claimed in a log line before, never actually performed.
+  const serialOnly = new Set<string>();
+  const requeues = new Map<string, number>();
 
   // Re-read the list on every iteration: a live micro-modification may append a
   // task while this loop is running — it must be picked up by the current build.
@@ -606,17 +620,36 @@ export async function stepImplementTasks(ctx: StepCtx): Promise<StepFlow> {
     if (!task) break;
     if (ctx.signal.aborted) return { status: 'halted', mode: haltMode(ctx.signal) };
 
+    const ready = readySet(ordered);
+
+    // A task the worktree path could not land goes through the main workspace, alone,
+    // BEFORE any new batch is formed. Retrying it inside a batch would reproduce the
+    // exact same failure indefinitely.
+    const forced = ready.find((t) => serialOnly.has(t.taskKey));
+    if (forced) {
+      serialOnly.delete(forced.taskKey);
+      ws.appendProgress(ctx.workspace, `${forced.taskKey} repris en série dans le workspace principal`);
+      const outcome = await runOneTask(ctx, forced, stack, interfacesExcerpt);
+      if (outcome.status === 'requeued') {
+        if (!countRequeue(ctx, requeues, forced)) {
+          return { status: 'failed', message: `tâche ${forced.taskKey}: impossible à intégrer après ${MAX_REQUEUES} reprises` };
+        }
+        continue;
+      }
+      if (outcome.status !== 'ok') return outcome;
+      continue;
+    }
+
     // Width comes from the size tier capped by the global setting, and is then limited
     // by what the session pool can actually lend right now (tryAcquire never blocks).
     const width = parallelWidth(ctx);
-    const ready = readySet(ordered);
     const extras = width > 1 ? pool.tryAcquire(Math.min(width, ready.length) - 1) : [];
     const batch = pickBatch(ready, 1 + extras.length);
     // Hand back the leases the batch did not end up using.
     releaseAll(extras.slice(Math.max(0, batch.length - 1)));
 
     if (batch.length > 1) {
-      const flow = await runBatch(ctx, batch, stack, interfacesExcerpt);
+      const flow = await runBatch(ctx, batch, stack, interfacesExcerpt, serialOnly, requeues);
       releaseAll(extras);
       if (flow.status !== 'ok') return flow;
       continue;
@@ -625,11 +658,30 @@ export async function stepImplementTasks(ctx: StepCtx): Promise<StepFlow> {
 
     const solo = batch[0] ?? task;
     const outcome = await runOneTask(ctx, solo, stack, interfacesExcerpt);
-    if (outcome.status === 'requeued') continue;
+    if (outcome.status === 'requeued') {
+      if (!countRequeue(ctx, requeues, solo)) {
+        return { status: 'failed', message: `tâche ${solo.taskKey}: impossible à intégrer après ${MAX_REQUEUES} reprises` };
+      }
+      continue;
+    }
     if (outcome.status !== 'ok') return outcome;
   }
   repos.projects.patch(ctx.projectId, { current_task_key: null });
   return { status: 'ok' };
+}
+
+/**
+ * Counts a requeue and returns false once the task has burnt its budget — at which point
+ * the step must fail loudly rather than skip the task and ship a product missing a feature.
+ */
+function countRequeue(ctx: StepCtx, requeues: Map<string, number>, task: TaskDto): boolean {
+  const n = (requeues.get(task.taskKey) ?? 0) + 1;
+  requeues.set(task.taskKey, n);
+  if (n <= MAX_REQUEUES) return true;
+  const failed = ctx.deps.repos.tasks.setStatus(ctx.projectId, task.taskKey, 'failed');
+  ctx.deps.bus.emit('task.updated', ctx.projectId, { task: toTaskDto(failed) });
+  ctx.deps.ws.appendProgress(ctx.workspace, `${task.taskKey} abandonnée après ${MAX_REQUEUES} reprises infructueuses`);
+  return false;
 }
 
 /** Batch width for this project: size tier, capped by the global setting. */
@@ -701,7 +753,14 @@ async function runOneTask(ctx: StepCtx, task: TaskDto, stack: StackInfo, interfa
  * the work of its siblings. Nothing is force-aborted — a sibling will park on its own and
  * its `paused_limit` step_run is what the resume path looks for.
  */
-async function runBatch(ctx: StepCtx, batch: TaskDto[], stack: StackInfo, interfacesExcerpt?: string): Promise<StepFlow> {
+async function runBatch(
+  ctx: StepCtx,
+  batch: TaskDto[],
+  stack: StackInfo,
+  interfacesExcerpt: string | undefined,
+  serialOnly: Set<string>,
+  requeues: Map<string, number>
+): Promise<StepFlow> {
   const { repos, ws, bus } = ctx.deps;
   const slug = repos.projects.byId(ctx.projectId)!.slug;
 
@@ -709,8 +768,12 @@ async function runBatch(ctx: StepCtx, batch: TaskDto[], stack: StackInfo, interf
   for (const t of batch) markInProgress(ctx, t);
   emitProject(ctx);
   ws.appendProgress(ctx.workspace, `lot parallèle: ${batch.map((t) => t.taskKey).join(', ')}`);
+  // COMMIT IT: an uncommitted docs/PROGRESS.md leaves the main workspace dirty, and
+  // `git merge` refuses to run on a dirty tree. That is what turned the first integration
+  // into a bogus "conflit de fusion" and started the silent-skip chain.
+  await ws.commitAll(ctx.workspace, `chore: start batch ${batch.map((t) => t.taskKey.toLowerCase()).join(' ')}`);
 
-  const results = await Promise.all(batch.map((task) => runInWorktree(ctx, task, slug, stack, interfacesExcerpt)));
+  const results = await Promise.all(batch.map((task) => runInWorktree(ctx, task, slug, stack, interfacesExcerpt, serialOnly)));
 
   // Precedence: a halt beats a park beats a failure — the most restrictive wins.
   const halted = results.find((r) => r.status === 'halted');
@@ -724,6 +787,13 @@ async function runBatch(ctx: StepCtx, batch: TaskDto[], stack: StackInfo, interf
     bus.emit('task.updated', ctx.projectId, { task: toTaskDto(row) });
     return failed as StepFlow;
   }
+  // Requeued tasks are counted here so a task that can never land eventually fails the
+  // step instead of being skipped forever.
+  for (const [i, r] of results.entries()) {
+    if (r.status === 'requeued' && !countRequeue(ctx, requeues, batch[i])) {
+      return { status: 'failed', message: `tâche ${batch[i].taskKey}: impossible à intégrer après ${MAX_REQUEUES} reprises` };
+    }
+  }
   return { status: 'ok' };
 }
 
@@ -736,18 +806,27 @@ async function runInWorktree(
   task: TaskDto,
   slug: string,
   stack: StackInfo,
-  interfacesExcerpt?: string
+  interfacesExcerpt: string | undefined,
+  serialOnly: Set<string>
 ): Promise<TaskOutcome> {
   const { repos, ws, bus, config, mutex, wt } = ctx.deps;
+
+  /** Hands the task back to the main workspace — the only path guaranteed to work. */
+  const requeueSerially = (reason: string): TaskOutcome => {
+    ws.appendProgress(ctx.workspace, `${task.taskKey}: ${reason}`);
+    serialOnly.add(task.taskKey);
+    repos.tasks.setWorktree(ctx.projectId, task.taskKey, null);
+    const row = repos.tasks.setStatus(ctx.projectId, task.taskKey, 'pending');
+    bus.emit('task.updated', ctx.projectId, { task: toTaskDto(row) });
+    return { status: 'requeued' };
+  };
 
   let dir: string;
   try {
     dir = await wt.ensure(ctx.workspace, slug, task.taskKey);
   } catch (err) {
-    // Worktree creation is infrastructure, not the model's fault: fall back to serial.
-    ws.appendProgress(ctx.workspace, `worktree impossible pour ${task.taskKey} (${(err as Error).message}) — reprise en série`);
-    repos.tasks.setStatus(ctx.projectId, task.taskKey, 'pending');
-    return { status: 'requeued' };
+    // Worktree creation is infrastructure, not the model's fault.
+    return requeueSerially(`arbre de travail indisponible (${(err as Error).message.slice(0, 200)}) — reprise en série`);
   }
   repos.tasks.setWorktree(ctx.projectId, task.taskKey, dir);
 
@@ -768,25 +847,23 @@ async function runInWorktree(
   return mutex.run(`merge:${ctx.projectId}`, async () => {
     const before = await ws.headSha(ctx.workspace);
     const merged = await wt.merge(ctx.workspace, task.taskKey, task.title);
-    if (merged === 'conflict') {
-      ws.appendProgress(ctx.workspace, `conflit de fusion sur ${task.taskKey} — la tâche est reprise seule sur main à jour`);
+    if (merged.outcome === 'conflict' || merged.outcome === 'error') {
+      // Distinguished on purpose: a content conflict is expected occasionally, any other
+      // git failure means the orchestrator left the workspace in a state it should not have.
+      const reason =
+        merged.outcome === 'conflict'
+          ? `conflit de fusion — reprise en série sur main à jour`
+          : `fusion impossible (${merged.detail}) — reprise en série sur main à jour`;
       await wt.remove(ctx.workspace, slug, task.taskKey);
-      repos.tasks.setWorktree(ctx.projectId, task.taskKey, null);
-      const row = repos.tasks.setStatus(ctx.projectId, task.taskKey, 'pending');
-      bus.emit('task.updated', ctx.projectId, { task: toTaskDto(row) });
-      return { status: 'requeued' };
+      return requeueSerially(reason);
     }
 
     // Two branches can merge cleanly and still break together: verify the merged tree.
     const v = await verifyStack(config, ctx.workspace, stack, ['test']);
     if (!v.ok) {
-      ws.appendProgress(ctx.workspace, `régression après fusion de ${task.taskKey} — retour en arrière et reprise en série`);
       if (before) await ws.resetHard(ctx.workspace, before);
       await wt.remove(ctx.workspace, slug, task.taskKey);
-      repos.tasks.setWorktree(ctx.projectId, task.taskKey, null);
-      const row = repos.tasks.setStatus(ctx.projectId, task.taskKey, 'pending');
-      bus.emit('task.updated', ctx.projectId, { task: toTaskDto(row) });
-      return { status: 'requeued' };
+      return requeueSerially('régression après fusion — retour en arrière et reprise en série');
     }
 
     await settleDone(ctx, task, config.fakeCli ? null : await ws.headSha(ctx.workspace));
