@@ -130,3 +130,36 @@ describe('classifyFailure', () => {
     expect(f.resetAt).toBe(resetsAtSec * 1000);
   });
 });
+
+/**
+ * Regression (emeline): `error_max_budget_usd` had no pattern at all, so a budget kill was
+ * classified 'unknown' and the surfaced error became the model's last narration
+ * ("Je lance 10 agents de recherche en parallèle…") — an undiagnosable build failure.
+ */
+describe('budget kill', () => {
+  it('classifies the CLI subtype, not the model narration', () => {
+    const f = classify("Je lance 10 agents de recherche en parallèle (lecture seule) pour vérifier chaque groupe.", {
+      resultSubtype: 'error_max_budget_usd',
+    });
+    expect(f.kind).toBe('budget_exceeded');
+    expect(f.message).toMatch(/max-budget-usd/);
+    expect(f.message).toMatch(/0 pour lever le plafond/);
+    // The narration must NOT leak into the operator-facing message.
+    expect(f.message).not.toMatch(/agents de recherche/);
+  });
+
+  it('also catches the prose form when no subtype is available', () => {
+    expect(classify('Error: max budget exceeded for this session').kind).toBe('budget_exceeded');
+  });
+
+  it('never shadows a usage limit — that one must park and resume, not fail', () => {
+    const f = classify('Claude AI usage limit reached', { resultSubtype: 'error_max_budget_usd' });
+    expect(f.kind).toBe('usage_limit');
+    expect(f.resetAt).toBeGreaterThan(NOW);
+  });
+
+  it('does not fire on a successful run that merely mentions a budget', () => {
+    const f = classify('Le budget de la page est respecté', { resultIsError: false, exitCode: 0 });
+    expect(f.kind).not.toBe('budget_exceeded');
+  });
+});

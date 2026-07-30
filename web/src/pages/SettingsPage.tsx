@@ -100,14 +100,17 @@ export function SettingsPage() {
           <span title={T.sDesignBenchmarkHint}>{T.sDesignBenchmark}</span>
           <input type="checkbox" className="h-4 w-4" checked={form.designBenchmark} onChange={(e) => setForm({ ...form, designBenchmark: e.target.checked })} />
         </label>
-        <label className="flex items-center justify-between gap-4 text-sm">
-          <span>{T.sBudget}</span>
+        <label className="flex items-start justify-between gap-4 text-sm">
+          <span className="flex flex-col">
+            {T.sBudget}
+            <span className="mt-0.5 text-xs text-zinc-500">{T.sBudgetHint}</span>
+          </span>
           <input
             type="number"
             min={0}
             max={100}
             step={0.5}
-            className="input !w-24"
+            className="input !w-24 shrink-0"
             value={form.maxBudgetUsdPerSession}
             onChange={(e) => setForm({ ...form, maxBudgetUsdPerSession: Number(e.target.value) || 0 })}
           />

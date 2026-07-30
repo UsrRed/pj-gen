@@ -406,7 +406,13 @@ Lis docs/SPEC.md (fonctionnalités F1..Fn, éléments différenciants, critères
 - Lance l'app ou les tests si nécessaire pour constater.
 
 Statuts: ok (réellement câblée et conforme), partial (présente mais incomplète/dégradée), missing (absente ou non câblée). Sois SÉVÈRE: dans le doute, partial.
-Pour chaque entrée: evidence = fichiers/éléments précis constatés; fix_hint = quoi faire concrètement ("" si ok).`;
+Pour chaque entrée: evidence = fichiers/éléments précis constatés; fix_hint = quoi faire concrètement ("" si ok).
+
+BUDGET DE RECHERCHE — cette étape a coupé des builds en épuisant son budget avant de conclure:
+- Pars de docs/ARCHITECTURE.md pour localiser chaque module: n'explore pas le dépôt à l'aveugle.
+- 4 sous-agents au maximum, lancés sur des groupes de fonctionnalités DISJOINTS, chacun avec la liste précise des fichiers à regarder. Jamais deux sous-agents sur le même périmètre: ils reliraient les mêmes fichiers et leurs tokens sont facturés à CETTE session.
+- Ne relance pas la suite de tests complète: cible les tests des fonctionnalités douteuses.
+- Si le budget se tend, ARRÊTE la recherche et rends ton verdict avec ce que tu as, en marquant partial ce que tu n'as pas pu vérifier — ne marque jamais ok une fonctionnalité que tu n'as pas constatée.`;
 }
 
 export interface FeatureGap {

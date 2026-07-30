@@ -138,7 +138,9 @@ async function runGenerationStep<T>(ctx: StepCtx, o: GenOpts<T>): Promise<StepFl
     const f = result.failure!;
     if (f.kind === 'usage_limit') return { status: 'parked' };
     if (f.kind === 'canceled') return { status: 'halted', mode: haltMode(ctx.signal) };
-    if (f.kind === 'auth') return { status: 'failed', message: f.message };
+    // Auth and budget are settings problems, not model problems: retrying with the same
+    // settings can only reproduce the failure (3 identical budget kills sank a whole build).
+    if (f.kind === 'auth' || f.kind === 'budget_exceeded') return { status: 'failed', message: f.message };
     lastError = f.message;
   }
   return { status: 'failed', message: lastError ?? 'échec de génération' };
@@ -241,7 +243,9 @@ async function runToolStep(ctx: StepCtx, o: ToolOpts): Promise<StepFlow> {
     const f = result.failure!;
     if (f.kind === 'usage_limit') return { status: 'parked' };
     if (f.kind === 'canceled') return { status: 'halted', mode: haltMode(ctx.signal) };
-    if (f.kind === 'auth') return { status: 'failed', message: f.message };
+    // Auth and budget are settings problems, not model problems: retrying with the same
+    // settings can only reproduce the failure (3 identical budget kills sank a whole build).
+    if (f.kind === 'auth' || f.kind === 'budget_exceeded') return { status: 'failed', message: f.message };
     if (f.kind === 'resume_lost') {
       // Fresh restart of the step: durable state lives in git; prompts open with `git status`.
       resumeSessionId = null;
@@ -908,7 +912,7 @@ export async function stepFeatureCheck(ctx: StepCtx): Promise<StepFlow> {
 
     // --- audit: fresh session with tools (reads the codebase) + structured verdict
     let audit: FeatureAudit | null = null;
-    const { result } = await executeClaudeRun(ctx.deps, {
+    const { result, rescued } = await executeClaudeRun(ctx.deps, {
       projectId: ctx.projectId,
       stepKey: 'feature_check',
       taskKey: 'audit',
@@ -935,7 +939,7 @@ export async function stepFeatureCheck(ctx: StepCtx): Promise<StepFlow> {
       const f = result.failure!;
       if (f.kind === 'usage_limit') return { status: 'parked' };
       if (f.kind === 'canceled') return { status: 'halted', mode: haltMode(ctx.signal) };
-      if (f.kind === 'auth') return { status: 'failed', message: f.message };
+      if (f.kind === 'auth' || f.kind === 'budget_exceeded') return { status: 'failed', message: f.message };
       if (round === rounds) return { status: 'failed', message: `audit des fonctionnalités impossible: ${f.message}` };
       continue; // retry the audit on the next round
     }
@@ -955,7 +959,20 @@ export async function stepFeatureCheck(ctx: StepCtx): Promise<StepFlow> {
     await ws.commitAll(ctx.workspace, `docs: feature audit pass ${round + 1}`);
     bus.emit('artifact.updated', ctx.projectId, { path: 'docs/FEATURE_AUDIT.md' });
 
-    if (!gaps.length) return { status: 'ok' };
+    // A rescued audit came from a session that was killed mid-flight — in the observed case
+    // the model itself wrote "budget nearly exhausted, reporting a partial analysis". It is
+    // useful (its gaps drive the fixes) but it cannot CLEAR the conformity gate: a partial
+    // pass that marks features "ok" it never actually checked is exactly what this step exists
+    // to catch. Force one more fix + re-audit round.
+    if (rescued && round < rounds) {
+      ws.appendProgress(
+        ctx.workspace,
+        `audit de la passe ${round + 1} récupéré d'une session coupée (analyse potentiellement partielle) — ronde supplémentaire imposée`
+      );
+      if (!gaps.length) continue;
+    } else if (!gaps.length) {
+      return { status: 'ok' };
+    }
 
     if (round === rounds) {
       const missing = gaps.filter((g) => g.status === 'missing');

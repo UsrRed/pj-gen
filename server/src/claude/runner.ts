@@ -176,6 +176,9 @@ export function createRealRunner(config: Config, caps: Capabilities) {
           resultText,
           resultIsError: Boolean(resultEvent?.is_error),
           hasResultEvent: resultEvent !== null,
+          // The CLI names the exact cause here (e.g. error_max_budget_usd); without it the
+          // classifier can only guess from prose and falls back to 'unknown'.
+          resultSubtype: typeof resultEvent?.subtype === 'string' ? resultEvent.subtype : null,
           stderr: stderrBuf,
           lastAssistantText,
           exitCode: code,

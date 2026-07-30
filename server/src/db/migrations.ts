@@ -270,6 +270,13 @@ const MIGRATIONS: string[] = [
   ALTER TABLE tasks ADD COLUMN after_keys TEXT NOT NULL DEFAULT '[]';
   ALTER TABLE tasks ADD COLUMN phase TEXT NOT NULL DEFAULT 'core';
   `,
+  // v13 — le garde-fou --max-budget-usd tuait net des sessions d'audit qui avaient déjà
+  // produit leur résultat. Sur abonnement il ne mesure rien: on efface la valeur quand
+  // elle vaut encore l'ANCIEN défaut (5), pour que le nouveau (0 = illimité) s'applique.
+  // Une valeur réglée à la main autre que 5 est conservée.
+  `
+  DELETE FROM settings WHERE key = 'max_budget_usd_per_session' AND value = '5';
+  `,
 ];
 
 export function migrate(db: DB): void {

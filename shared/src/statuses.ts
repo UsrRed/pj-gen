@@ -136,6 +136,8 @@ export type FailureKind =
   | 'timeout'
   | 'schema_invalid'
   | 'verify_failed'
+  /** `--max-budget-usd` reached: the CLI kills the session on the spot. */
+  | 'budget_exceeded'
   | 'crash'
   | 'resume_lost'
   | 'canceled'

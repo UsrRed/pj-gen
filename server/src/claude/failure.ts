@@ -33,6 +33,9 @@ const AUTH_PATTERNS = [
   /credential.*(?:expired|invalid|missing)/i,
 ];
 
+/** `error_max_budget_usd` (result subtype) and its prose variants. */
+const BUDGET_PATTERN = /max[_ -]?budget|budget (?:limit |cap )?(?:exceeded|reached)/i;
+
 const RESUME_LOST_PATTERNS = [/no conversation found/i, /session (?:id )?.{0,40}not found/i, /could not resume/i];
 
 const OVERLOADED_PATTERNS = [/overloaded[_ ]error/i, /\b529\b/, /\b503\b/, /internal server error/i, /api error.*retry/i, /connection (?:refused|reset|error)/i, /fetch failed/i, /etimedout|econnreset|enotfound/i];
@@ -80,6 +83,8 @@ export interface ClassifyInput {
   resultText: string;
   resultIsError: boolean;
   hasResultEvent: boolean;
+  /** `subtype` of the final result event — the CLI's own name for the failure. */
+  resultSubtype?: string | null;
   stderr: string;
   lastAssistantText: string;
   exitCode: number | null;
@@ -127,6 +132,18 @@ export function classifyFailure(input: ClassifyInput, now = Date.now()): Failure
       message: `Limite d'usage de l'abonnement atteinte (motif: « ${limit.matchedPattern} »)`,
       resetAt: limit.resetAt,
       matchedPattern: limit.matchedPattern,
+    };
+  }
+  // AFTER the usage-limit checks on purpose: a subscription limit must PARK and resume,
+  // never fail. Only once that is ruled out do we trust the CLI's own subtype — without it
+  // a budget kill was classified 'unknown' and surfaced as the model's last narration
+  // ("Je lance 10 agents…"), leaving the operator with no usable diagnosis.
+  if (BUDGET_PATTERN.test(input.resultSubtype ?? '') || (isError && BUDGET_PATTERN.test(haystack))) {
+    return {
+      kind: 'budget_exceeded',
+      message:
+        'Garde-fou budget atteint (--max-budget-usd) — la session a été tuée net. ' +
+        'Réglages → « Budget max par session » : mets 0 pour lever le plafond (recommandé sur abonnement).',
     };
   }
   for (const re of AUTH_PATTERNS) {

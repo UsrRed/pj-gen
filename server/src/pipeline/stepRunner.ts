@@ -30,6 +30,9 @@ export interface ExecOpts {
 export interface ExecOutcome {
   runId: number;
   result: RunResult;
+  /** The session was killed but had already delivered a valid structured answer, which
+   *  was recovered. Callers that gate on quality must not treat it as a clean pass. */
+  rescued: boolean;
 }
 
 export function newSessionId(): string {
@@ -99,17 +102,42 @@ export async function executeClaudeRun(deps: CoreDeps, opts: ExecOpts): Promise<
   // `validate` is where verifyStack (install/build/test) runs: timing it separately
   // tells apart "the model is slow" from "the test suite is slow".
   let verifyMs: number | null = null;
-  if (result.outcome === 'success' && opts.validate) {
+  let rescued = false;
+
+  /**
+   * A session can be killed AFTER it has delivered its structured answer — a budget or
+   * cap kill lands on whatever turn happens to be running. The runner already carries
+   * `structured` on a failed result, so throwing it away means redoing minutes of work
+   * that is sitting right there. Re-run `validate` on such a result: if it is complete
+   * and schema-valid, the run counts as a success.
+   */
+  const salvageable =
+    result.outcome === 'failure' &&
+    opts.validate !== undefined &&
+    result.structured !== undefined &&
+    // Only steps that actually asked for a structured answer; a tool step killed mid-edit
+    // has no deliverable to recover, and its `validate` checks commits, not a payload.
+    opts.spec.jsonSchema !== undefined &&
+    // A quota park must stay a park (the reset epoch and the resume session are the point),
+    // and an operator cancel must stay a cancel.
+    result.failure?.kind !== 'usage_limit' &&
+    result.failure?.kind !== 'canceled';
+
+  if ((result.outcome === 'success' || salvageable) && opts.validate) {
     const validateStarted = Date.now();
     const v = await opts.validate(result);
     verifyMs = Date.now() - validateStarted;
-    if (!v.ok) {
+    if (v.ok && salvageable) {
+      rescued = true;
+      result = { ...result, outcome: 'success', failure: undefined };
+    } else if (!v.ok && result.outcome === 'success') {
       result = {
         ...result,
         outcome: 'failure',
         failure: { kind: v.kind, message: v.message },
       };
     }
+    // A salvage attempt that fails validation changes nothing: the original failure stands.
   }
 
   repos.sessions.bump(opts.session.id, result.numTurns, result.costUsd, result.usage);
@@ -156,5 +184,5 @@ export async function executeClaudeRun(deps: CoreDeps, opts: ExecOpts): Promise<
     repos.sessions.setStatus(opts.session.id, 'lost');
   }
 
-  return { runId: run.id, result };
+  return { runId: run.id, result, rescued };
 }

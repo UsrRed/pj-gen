@@ -59,7 +59,12 @@ export const DEFAULT_SETTINGS: SettingsDto = {
   defaultModel: 'opus',
   autoResumeOnBoot: true,
   skipTestHardening: false,
-  maxBudgetUsdPerSession: 5,
+  // 0 = pas de plafond. Sur abonnement le dollar ne mesure rien: la vraie limite est la
+  // fenêtre 5 h en tokens, déjà gérée (parcage + reprise automatique). Les caps tours et
+  // durée restent les garde-fous réels contre une session folle — et eux savent faire
+  // atterrir la session proprement, là où --max-budget-usd la tue net, en jetant au
+  // passage un travail parfois déjà terminé.
+  maxBudgetUsdPerSession: 0,
   stepCaps: DEFAULT_STEP_CAPS,
   stepModels: DEFAULT_STEP_MODELS,
   designBenchmark: true,

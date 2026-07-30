@@ -203,6 +203,8 @@ export const T = {
   sAutoResume: 'Reprise automatique au démarrage',
   sSkipHardening: "Sauter l'étape de durcissement des tests",
   sBudget: 'Budget max par session (USD, garde-fou)',
+  sBudgetHint:
+    '0 = illimité (recommandé sur abonnement : le dollar ne mesure rien, c’est la fenêtre 5 h en tokens qui compte). Une valeur non nulle tue la session NET quand elle est atteinte — y compris un travail déjà terminé. Les caps tours/durée par étape restent les vrais garde-fous.',
   sCaps: 'Caps par étape (tours / minutes)',
   projBenchmark: 'Benchmark design',
   projBenchmarkOn: 'activé',
