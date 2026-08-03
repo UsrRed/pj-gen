@@ -154,7 +154,10 @@ export const BreakdownTaskZ = z.object({
 });
 
 export const BreakdownOutputZ = z.object({
-  tasks: z.array(BreakdownTaskZ).min(1).max(40),
+  // Plafond = espace de clés (T01–T99), pas la discipline de périmètre : celle-ci vient du
+  // prompt (profile.minTasks/maxTasks). Un plafond plus bas que le gabarit (ex-40 < enterprise 45)
+  // fait rejeter par le validateur une sortie qui obéit au prompt.
+  tasks: z.array(BreakdownTaskZ).min(1).max(99),
 });
 export type BreakdownOutput = z.infer<typeof BreakdownOutputZ>;
 
