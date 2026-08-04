@@ -36,6 +36,8 @@ async function git(workspace: string, config: Config, args: string[]): Promise<{
     cwd: workspace,
     env: {
       ...process.env,
+      // Messages git en anglais quel que soit le système : les erreurs sont parsées (addAll, commitAll).
+      LC_ALL: 'C',
       GIT_AUTHOR_NAME: config.gitAuthorName,
       GIT_AUTHOR_EMAIL: config.gitAuthorEmail,
       GIT_COMMITTER_NAME: config.gitAuthorName,
@@ -198,8 +200,35 @@ export class WorkspaceManager {
     return absTarget;
   }
 
-  async commitAll(workspace: string, message: string): Promise<string | null> {
+  /**
+   * `git add -A` refuse un dépôt imbriqué sans commit (« does not have a commit checked
+   * out ») — typiquement une fixture `git init` laissée par les tests du projet généré.
+   * Ces chemins sont exclus localement (info/exclude, jamais dans les fichiers du projet)
+   * puis l'add est retenté, au lieu de couler le build.
+   */
+  private async addAll(workspace: string): Promise<void> {
+    for (let round = 0; round < 3; round++) {
+      try {
+        await git(workspace, this.config, ['add', '-A']);
+        return;
+      } catch (err) {
+        const msg =
+          String((err as { stdout?: string }).stdout ?? '') + String((err as { stderr?: string }).stderr ?? '');
+        const embedded = [...msg.matchAll(/error: '(.+?)' does not have a commit checked out/g)].map((m) => m[1]);
+        if (embedded.length === 0) throw err;
+        // --git-path résout aussi le cas worktree (.git fichier) vers le bon info/exclude.
+        const { stdout } = await git(workspace, this.config, ['rev-parse', '--git-path', 'info/exclude']);
+        const excludeFile = path.resolve(workspace, stdout.trim());
+        fs.mkdirSync(path.dirname(excludeFile), { recursive: true });
+        const lines = embedded.map((p) => `/${p.replace(/\/+$/, '')}/`);
+        fs.appendFileSync(excludeFile, lines.join('\n') + '\n', 'utf8');
+      }
+    }
     await git(workspace, this.config, ['add', '-A']);
+  }
+
+  async commitAll(workspace: string, message: string): Promise<string | null> {
+    await this.addAll(workspace);
     try {
       await git(workspace, this.config, ['commit', '-m', message]);
     } catch (err) {

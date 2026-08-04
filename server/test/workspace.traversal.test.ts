@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -42,5 +43,31 @@ describe('WorkspaceManager path jail', () => {
     expect(hook).toContain('co-authored-by');
     const sha = await ws.headSha(workspace);
     expect(sha).toBeTruthy();
+  });
+
+  it('commitAll survives an embedded commit-less repo left behind by generated tests', async () => {
+    const base = tmpDir('embedded');
+    fs.mkdirSync(path.join(base, 'ws'), { recursive: true });
+    const ws = new WorkspaceManager(testConfig(base));
+    const workspace = await ws.create('demo3', 'Demo 3');
+
+    // Fixture typique: un test du projet généré fait `git init org/repo` sans jamais committer.
+    const nested = path.join(workspace, 'org', 'repo');
+    fs.mkdirSync(nested, { recursive: true });
+    execFileSync('git', ['init'], { cwd: nested });
+    fs.writeFileSync(path.join(nested, 'package.json'), '{}');
+    fs.writeFileSync(path.join(workspace, 'app.txt'), 'contenu');
+
+    const sha = await ws.commitAll(workspace, 'chore: with embedded repo');
+    expect(sha).toBeTruthy();
+    const tracked = execFileSync('git', ['ls-files'], { cwd: workspace, encoding: 'utf8' });
+    expect(tracked).toContain('app.txt');
+    expect(tracked).not.toContain('org/repo');
+    // Le chemin est exclu localement, jamais via les fichiers du projet généré.
+    expect(fs.readFileSync(path.join(workspace, '.git', 'info', 'exclude'), 'utf8')).toContain('/org/repo/');
+
+    // Un commit suivant ne rebute pas sur la même fixture.
+    fs.writeFileSync(path.join(workspace, 'app2.txt'), 'suite');
+    expect(await ws.commitAll(workspace, 'chore: again')).toBeTruthy();
   });
 });
