@@ -338,9 +338,11 @@ export async function stepArchitecture(ctx: StepCtx): Promise<StepFlow> {
   const { ws, repos, bus } = ctx.deps;
   const spec = ws.readFile(ctx.workspace, 'docs/SPEC.md');
   if (!spec) return { status: 'failed', message: 'docs/SPEC.md introuvable' };
-  // Improvement iteration on an existing architecture → update instead of redesign.
+  // An architecture already on disk (improvement iteration, or a GitHub import whose
+  // adoption session reverse-engineered it) → update instead of a blind redesign that
+  // would ignore the real, already-built codebase.
   const project = repos.projects.byId(ctx.projectId)!;
-  const existingArch = (project.iteration ?? 1) > 1 ? ws.readFile(ctx.workspace, 'docs/ARCHITECTURE.md') : null;
+  const existingArch = ws.readFile(ctx.workspace, 'docs/ARCHITECTURE.md');
   const existingInterfaces = existingArch ? ws.readFile(ctx.workspace, 'docs/INTERFACES.md') : null;
   // The tier decides how much machinery the architecture is allowed to introduce.
   const scope = profileFor(repos, project).scopeGuidance;

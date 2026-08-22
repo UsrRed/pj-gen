@@ -65,11 +65,11 @@ export class Engine {
 
   private async runInner(projectId: string, signal: AbortSignal): Promise<EngineOutcome> {
     const { repos } = this.deps;
-    const project = repos.projects.byId(projectId);
-    if (!project) return 'failed';
-    const workspace = project.workspace_path;
+    const project0 = repos.projects.byId(projectId);
+    if (!project0) return 'failed';
+    const workspace = project0.workspace_path;
 
-    let stack: StackInfo | null = repos.projects.stackOf(project);
+    let stack: StackInfo | null = repos.projects.stackOf(project0);
     const ctx: StepCtx = {
       deps: this.deps,
       projectId,
@@ -81,70 +81,93 @@ export class Engine {
       },
     };
 
-    const settings = repos.settings.getAll();
-    // Live micro-modifications run a reduced pipeline: implement the appended task(s), then verify.
-    const isMicro = (project.pipeline_mode ?? 'full') === 'micro';
-    // The size tier drops whole steps (a small project needs no design benchmark nor
-    // test hardening) — that is the cheapest speedup there is, and it is per project.
-    const profile = profileFor(repos, project);
-    const skip = new Set<StepKey>(isMicro ? [] : profile.skipSteps);
-    if (settings.skipTestHardening) skip.add('test_hardening');
-    // An explicit per-project benchmark choice outranks the tier's default.
-    if (project.design_benchmark !== null) skip.delete('design_benchmark');
+    // A micro build promoted mid-run to the full pipeline (see below) restarts this
+    // loop once with the recomputed order/skip-set — never more than once, since the
+    // promotion itself turns `isMicro` off for the next pass.
+    for (;;) {
+      const project = repos.projects.byId(projectId)!;
+      const settings = repos.settings.getAll();
+      // Live micro-modifications run a reduced pipeline: implement the appended task(s), then verify.
+      const isMicro = (project.pipeline_mode ?? 'full') === 'micro';
+      // The size tier drops whole steps (a small project needs no design benchmark nor
+      // test hardening) — that is the cheapest speedup there is, and it is per project.
+      const profile = profileFor(repos, project);
+      const skip = new Set<StepKey>(isMicro ? [] : profile.skipSteps);
+      if (settings.skipTestHardening) skip.add('test_hardening');
+      // An explicit per-project benchmark choice outranks the tier's default.
+      if (project.design_benchmark !== null) skip.delete('design_benchmark');
 
-    const order = isMicro ? MICRO_PIPELINE_ORDER : PIPELINE_ORDER;
-    const startIdx = project.current_step_key ? Math.max(0, order.indexOf(project.current_step_key)) : 0;
+      const order = isMicro ? MICRO_PIPELINE_ORDER : PIPELINE_ORDER;
+      const startIdx = project.current_step_key ? Math.max(0, order.indexOf(project.current_step_key)) : 0;
 
-    for (let i = startIdx; i < order.length; i++) {
-      const stepKey = order[i] as Exclude<StepKey, 'deploy' | 'micro'>;
-      if (skip.has(stepKey)) continue;
-      if (signal.aborted) return this.finishHalted(projectId, haltMode(signal));
+      let promoted = false;
+      for (let i = startIdx; i < order.length; i++) {
+        const stepKey = order[i] as Exclude<StepKey, 'deploy' | 'micro'>;
+        if (skip.has(stepKey)) continue;
+        if (signal.aborted) return this.finishHalted(projectId, haltMode(signal));
 
-      // A cancel/pause from outside may already have moved the status away from building.
-      if (repos.projects.byId(projectId)?.status !== 'building') return 'preempted';
+        // A cancel/pause from outside may already have moved the status away from building.
+        if (repos.projects.byId(projectId)?.status !== 'building') return 'preempted';
 
-      repos.projects.patch(projectId, { current_step_key: stepKey });
-      this.emitProject(projectId);
-
-      const flow = await STEP_FNS[stepKey](ctx);
-
-      if (flow.status === 'ok') continue;
-      if (flow.status === 'parked') {
-        this.sm.tryTransition(projectId, ['building'], 'paused_limit');
+        repos.projects.patch(projectId, { current_step_key: stepKey });
         this.emitProject(projectId);
-        return 'parked';
-      }
-      if (flow.status === 'halted') return this.finishHalted(projectId, flow.mode);
-      this.sm.tryTransition(projectId, ['building'], 'failed', { error_message: `${stepKey}: ${flow.message}` });
-      this.settleMicroRequests(projectId);
-      this.emitProject(projectId);
-      return 'failed';
-    }
 
-    // Settle micro requests riding this cycle (their tasks are done or not by now).
-    const settled = this.settleMicroRequests(projectId);
-    if (isMicro) {
-      // Manual micro-mods go back through the deploy gate; issue fixes on an
-      // auto-mode project (private repo) return straight to deployed.
-      const finalRow = repos.projects.byId(projectId)!;
-      const autoIssueOnly = settled.length > 0 && settled.every((r) => r.source === 'issue') && finalRow.github_auto_mode === 1;
-      this.sm.tryTransition(projectId, ['building'], autoIssueOnly ? 'deployed' : 'awaiting_deploy_approval', {
+        const flow = await STEP_FNS[stepKey](ctx);
+
+        if (flow.status === 'ok') continue;
+        if (flow.status === 'parked') {
+          this.sm.tryTransition(projectId, ['building'], 'paused_limit');
+          this.emitProject(projectId);
+          return 'parked';
+        }
+        if (flow.status === 'halted') return this.finishHalted(projectId, flow.mode);
+
+        // The reduced micro order never runs `architecture`, so a missing stack (an
+        // import whose adoption analysis never finished, or a race with it) is a dead
+        // end it can never recover from on its own — it would otherwise fail here on
+        // every retry forever. Self-heal instead: promote to the full pipeline, which
+        // re-detects the stack and gives whatever piled-up task(s) the complete
+        // architecture/breakdown/review/test treatment a non-trivial change deserves.
+        if (isMicro && !stack) {
+          repos.projects.patch(projectId, { pipeline_mode: 'full', current_step_key: null, current_task_key: null });
+          this.emitProject(projectId);
+          promoted = true;
+          break;
+        }
+
+        this.sm.tryTransition(projectId, ['building'], 'failed', { error_message: `${stepKey}: ${flow.message}` });
+        this.settleMicroRequests(projectId);
+        this.emitProject(projectId);
+        return 'failed';
+      }
+
+      if (promoted) continue;
+
+      // Settle micro requests riding this cycle (their tasks are done or not by now).
+      const settled = this.settleMicroRequests(projectId);
+      if (isMicro) {
+        // Manual micro-mods go back through the deploy gate; issue fixes on an
+        // auto-mode project (private repo) return straight to deployed.
+        const finalRow = repos.projects.byId(projectId)!;
+        const autoIssueOnly = settled.length > 0 && settled.every((r) => r.source === 'issue') && finalRow.github_auto_mode === 1;
+        this.sm.tryTransition(projectId, ['building'], autoIssueOnly ? 'deployed' : 'awaiting_deploy_approval', {
+          current_step_key: null,
+          current_task_key: null,
+          error_message: null,
+          pipeline_mode: 'full',
+        });
+        this.emitProject(projectId);
+        return 'completed';
+      }
+
+      this.sm.tryTransition(projectId, ['building'], 'awaiting_deploy_approval', {
         current_step_key: null,
         current_task_key: null,
         error_message: null,
-        pipeline_mode: 'full',
       });
       this.emitProject(projectId);
       return 'completed';
     }
-
-    this.sm.tryTransition(projectId, ['building'], 'awaiting_deploy_approval', {
-      current_step_key: null,
-      current_task_key: null,
-      error_message: null,
-    });
-    this.emitProject(projectId);
-    return 'completed';
   }
 
   /** Mark open micro requests done/failed from their task status and broadcast them. */

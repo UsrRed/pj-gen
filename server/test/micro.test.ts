@@ -103,6 +103,31 @@ describe('live micro-modifications', () => {
   });
 });
 
+describe('micro build with an unknown stack', () => {
+  it('self-heals to the full pipeline instead of dead-ending in `failed` forever', async () => {
+    const { c } = await testContainer();
+    cRef = c;
+    const id = await seedQueuedProject(c, 'Micro No Stack');
+    c.scheduler.start();
+    await waitFor(() => c.repos.projects.byId(id)!.status === 'awaiting_deploy_approval', 20_000, 'build initial');
+    expect(c.repos.projects.byId(id)!.stack).not.toBeNull();
+
+    // Simulate an imported project whose adoption analysis never set the stack
+    // (race or failure) — the exact condition that used to strand immo-paper.
+    c.repos.projects.patch(id, { stack: null });
+
+    const outcome = await c.micro.create(id, 'Corrige le libellé du bouton principal.');
+    expect(outcome.status).toBe('queued');
+
+    // Must recover on its own — never settle into `failed`.
+    await waitFor(() => c.repos.projects.byId(id)!.status === 'awaiting_deploy_approval', 20_000, 'self-heal run');
+    const after = c.repos.projects.byId(id)!;
+    expect(after.pipeline_mode).toBe('full');
+    expect(after.stack).not.toBeNull();
+    expect(after.error_message).toBeNull();
+  });
+});
+
 describe('github auto-mode guard', () => {
   it('refuses auto mode on a public repo', async () => {
     const { c } = await testContainer();
