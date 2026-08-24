@@ -1,8 +1,15 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Container } from '../src/container.js';
 import type { CiState, GithubService } from '../src/github/githubService.js';
 import type { MicroService } from '../src/micro/microService.js';
-import { AI_MARKER, IssuePoller, buildIssueRequest, isPjGenComment, type IssueComment } from '../src/github/issuePoller.js';
+import {
+  AI_MARKER,
+  IssuePoller,
+  buildIssueRequest,
+  classifyIssueScope,
+  isPjGenComment,
+  type IssueComment,
+} from '../src/github/issuePoller.js';
 import { testContainer } from './helpers.js';
 
 const ISSUE = { number: 7, author: 'alice', title: 'Bouton export cassé', body: 'Le bouton ne fait rien.' };
@@ -131,6 +138,30 @@ class FakeMicro {
   }
 }
 
+describe('classifyIssueScope', () => {
+  it('micro: a one-off bug report stays a micro-modification', () => {
+    expect(classifyIssueScope('Le bouton export ne fait rien quand le panier est vide.')).toBe('micro');
+  });
+
+  it('micro: a small tweak request stays a micro-modification', () => {
+    expect(classifyIssueScope("Corrige la faute d'orthographe dans le libellé du bouton d'export.")).toBe('micro');
+  });
+
+  it('full: a new-feature request exceeds micro scope', () => {
+    expect(classifyIssueScope('Peux-tu ajouter une nouvelle fonctionnalité de recherche par tags ?')).toBe('full');
+  });
+
+  it('full: an architecture change exceeds micro scope', () => {
+    expect(classifyIssueScope("Il faudrait revoir l'architecture du module de paiement pour supporter plusieurs devises.")).toBe(
+      'full'
+    );
+  });
+
+  it('full: an explicitly wide multi-file impact exceeds micro scope', () => {
+    expect(classifyIssueScope('Ce changement touche plusieurs fichiers et a un impact large sur le front.')).toBe('full');
+  });
+});
+
 describe('IssuePoller drainQueued: processes the lowest issue number first', () => {
   let cRef: Container | null = null;
   let pollerRef: IssuePoller | null = null;
@@ -175,7 +206,7 @@ describe('IssuePoller drainQueued: processes the lowest issue number first', () 
       updatedAt: '2026-07-22T00:00:00Z',
     }));
     const micro = new FakeMicro();
-    const poller = new IssuePoller(c, gh as unknown as GithubService, micro as unknown as MicroService);
+    const poller = new IssuePoller(c, gh as unknown as GithubService, micro as unknown as MicroService, c.spec);
     pollerRef = poller;
 
     await poller.tick(); // one in-flight fix per project: drains #2, then fails fast
@@ -219,7 +250,7 @@ describe('IssuePoller CI gate (finalizeFixing)', () => {
     const mr = c.repos.micro.insert(id, 'issue', 'Corrige le bouton.', row.id);
     c.repos.micro.patch(mr.id, { status: 'done' });
 
-    const poller = new IssuePoller(c, gh as unknown as GithubService, c.micro);
+    const poller = new IssuePoller(c, gh as unknown as GithubService, c.micro, c.spec);
     pollerRef = poller;
     const issue = () => c.repos.issues.byNumber(id, 5)!;
     return { c, gh, poller, issue };
@@ -279,5 +310,71 @@ describe('IssuePoller CI gate (finalizeFixing)', () => {
     expect(issue().decision).toBe('fixed');
     expect(gh.closed).toEqual([5]);
     expect(gh.comments[0].body).toContain('Statut CI non confirmé');
+  });
+});
+
+describe('IssuePoller drainQueued: routing by scope (T05)', () => {
+  let cRef: Container | null = null;
+  let pollerRef: IssuePoller | null = null;
+  afterEach(() => {
+    pollerRef?.stop();
+    pollerRef = null;
+    cRef?.close();
+    cRef = null;
+  });
+
+  async function setup(issue: { number: number; title: string; body: string }) {
+    const { c } = await testContainer();
+    cRef = c;
+    const slug = 'scope-routing';
+    const workspacePath = await c.ws.create(slug, 'Scope Routing');
+    const id = 'scope-routing-id';
+    c.repos.projects.insert({ id, slug, title: 'Scope Routing', model: null, workspacePath, initialPrompt: 'test' });
+    c.repos.projects.casStatus(id, ['draft'], 'deployed');
+    c.repos.projects.patch(id, { github_repo: 'usrred/scope-routing', github_private: 1, github_auto_mode: 1 });
+
+    const gh = new FakeGithub();
+    gh.issues = [{ number: issue.number, title: issue.title, body: issue.body, author: { login: 'alice' }, updatedAt: '2026-07-22T00:00:00Z' }];
+    const { row } = c.repos.issues.upsert(id, { ...issue, author: 'alice', ghUpdatedAt: '2026-07-22T00:00:00Z' });
+    c.repos.issues.patch(row.id, { decision: 'queued' });
+
+    const micro = new FakeMicro();
+    const reopen = vi.spyOn(c.spec, 'reopen').mockResolvedValue(undefined);
+    const poller = new IssuePoller(c, gh as unknown as GithubService, micro as unknown as MicroService, c.spec);
+    pollerRef = poller;
+    const freshIssue = () => c.repos.issues.byNumber(id, issue.number)!;
+    return { c, gh, micro, reopen, poller, issue: freshIssue };
+  }
+
+  it('a large-scope issue is routed to the full pipeline (reopen), not the micro-endpoint', async () => {
+    const { gh, micro, reopen, poller, issue } = await setup({
+      number: 11,
+      title: 'Nouvelle fonctionnalité de recherche',
+      body: "Il faudrait ajouter une nouvelle fonctionnalité de recherche par tags dans tout le catalogue.",
+    });
+
+    await poller.tick();
+
+    expect(reopen).toHaveBeenCalledTimes(1);
+    expect(reopen.mock.calls[0][0]).toBe('scope-routing-id');
+    expect(micro.calls).toEqual([]); // non-regression guard: micro-endpoint was NOT called
+    expect(issue().decision).toBe('escalated');
+    expect(gh.comments).toHaveLength(1);
+    expect(gh.comments[0].body).toContain('pipeline complet');
+  });
+
+  it('a micro-scope issue is still routed to the micro-endpoint (non-regression)', async () => {
+    const { micro, reopen, gh, poller, issue } = await setup({
+      number: 12,
+      title: 'Bouton export cassé',
+      body: 'Le bouton export ne fait rien quand on clique dessus.',
+    });
+
+    await poller.tick();
+
+    expect(micro.calls).toEqual([issue().id]);
+    expect(reopen).not.toHaveBeenCalled();
+    expect(gh.comments).toHaveLength(1);
+    expect(gh.comments[0].body).toContain('micro-modification');
   });
 });

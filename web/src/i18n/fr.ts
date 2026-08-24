@@ -312,6 +312,7 @@ gh auth login
     fixed: 'corrigée',
     failed: 'échec',
     needs_clarification: 'précisions demandées',
+    escalated: 'itération complète en cours',
   } as Record<string, string>,
   issueTrack: 'Suivi',
   issuePageTitle: (n: number) => `Issue #${n}`,

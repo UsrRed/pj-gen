@@ -82,7 +82,7 @@ export async function buildContainer(config: Config, overrides: ContainerOverrid
   const deploy = new DeployService(deps, chat);
   const micro = new MicroService(deps);
   const github = new GithubService(deps);
-  const issuePoller = new IssuePoller(deps, github, micro);
+  const issuePoller = new IssuePoller(deps, github, micro, spec);
   const notifier = new Notifier(repos, overrides.notifySend);
   notifier.attach(bus);
   const appRunner = new AppRunner(deps);

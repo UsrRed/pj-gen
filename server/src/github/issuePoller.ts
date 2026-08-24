@@ -1,8 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { REOPENABLE_STATUSES } from '@pjgen/shared';
 import type { CoreDeps } from '../core/deps.js';
 import type { GithubService } from './githubService.js';
 import type { MicroService } from '../micro/microService.js';
+import type { SpecService } from '../cadrage/specService.js';
 import type { AssetResult } from './issueAssets.js';
 import { toIssueDto, type IssueRow, type MicroRequestRow, type ProjectRow } from '../db/repos/index.js';
 
@@ -64,10 +66,45 @@ export function buildIssueRequest(
 }
 
 /**
+ * Signals that a request exceeds a micro-modification's scope (one small,
+ * ≤30min, single-purpose task): a brand new feature, an architecture change,
+ * or an explicitly wide multi-file impact — cases the micro qualification
+ * session (one task, `MicroTaskZ`) is not meant to handle.
+ */
+const FULL_SCOPE_SIGNALS: RegExp[] = [
+  /nouvelle\s+fonctionnalit/i,
+  /nouveau\s+module/i,
+  /nouvelle\s+page/i,
+  /new\s+feature/i,
+  /refonte/i,
+  /restructurat/i,
+  /migrat(ion|er)/i,
+  /r[ée]architectur/i,
+  /(chang(er|ement)|revoir|repenser)[^.\n]{0,40}architecture/i,
+  /architecture[^.\n]{0,40}(chang|revoir|repenser)/i,
+  /multi[- ]fichiers/i,
+  /impact[^.\n]{0,20}(large|important|multi)/i,
+  /plusieurs\s+(fichiers|modules|écrans|pages)/i,
+  /\brewrite\b/i,
+  /\bredesign\b/i,
+];
+
+/** 'full' routes to the complete pipeline (reopen); 'micro' keeps the live micro-modification flow. */
+export function classifyIssueScope(request: string): 'micro' | 'full' {
+  return FULL_SCOPE_SIGNALS.some((re) => re.test(request)) ? 'full' : 'micro';
+}
+
+const MODE_LABEL: Record<'micro' | 'full', string> = {
+  micro: 'micro-modification (correctif ponctuel, une seule tâche)',
+  full: 'pipeline complet (cadrage, SPEC révisée, nouvelles tâches)',
+};
+
+/**
  * Auto-issue fixer: periodically syncs open GitHub issues of linked projects,
  * auto-enqueues them (auto-mode projects on PRIVATE repos, or trusted authors),
- * turns queued issues into micro-modifications, and finalizes fixed ones
- * (push if auto, comment with what was done + AI mention, close).
+ * classifies queued issues by scope (`classifyIssueScope`) and routes them to
+ * either a live micro-modification or a full pipeline iteration (reopen), and
+ * finalizes fixed ones (push if auto, comment with what was done + AI mention, close).
  *
  * SECURITY: issue content is UNTRUSTED. It is only ever fed to the tool-less
  * qualification session (micro generation) wrapped in an untrusted-data frame;
@@ -81,7 +118,8 @@ export class IssuePoller {
   constructor(
     private deps: CoreDeps,
     private github: GithubService,
-    private micro: MicroService
+    private micro: MicroService,
+    private spec: SpecService
   ) {}
 
   start(): void {
@@ -209,6 +247,43 @@ export class IssuePoller {
       .catch(() => []);
     const downloaded = assets.filter((a) => a.ok && a.file);
     const request = buildIssueRequest(next, comments, assets, ourLogin);
+    const scope = classifyIssueScope(request);
+
+    if (scope === 'full') {
+      // The full pipeline (reopen) needs a settled project (REOPENABLE_STATUSES);
+      // 'building' (allowed for micro) is not one of them — defer to a later tick.
+      if (!REOPENABLE_STATUSES.includes(fresh.status)) {
+        this.emitIssue(repos.issues.patch(next.id, { decision: 'queued' }));
+        return;
+      }
+      try {
+        await this.github.issueComment(
+          project.github_repo!,
+          next.number,
+          `pj-gen prend en compte cette issue en mode **${MODE_LABEL.full}** : elle dépasse le périmètre d'une micro-modification. Le cadrage d'une itération démarre.\n\n${AI_MENTION}`
+        );
+      } catch (err) {
+        console.error(`[issuePoller] failed to post mode comment on issue #${next.number}:`, err);
+      }
+      try {
+        await this.spec.reopen(project.id, request);
+        this.emitIssue(repos.issues.patch(next.id, { decision: 'escalated' }));
+      } catch (err) {
+        console.error(`[issuePoller] reopen failed for issue #${next.number}:`, err);
+        this.emitIssue(repos.issues.patch(next.id, { decision: 'failed' }));
+      }
+      return;
+    }
+
+    try {
+      await this.github.issueComment(
+        project.github_repo!,
+        next.number,
+        `pj-gen prend en compte cette issue en mode **${MODE_LABEL.micro}**.\n\n${AI_MENTION}`
+      );
+    } catch (err) {
+      console.error(`[issuePoller] failed to post mode comment on issue #${next.number}:`, err);
+    }
     try {
       const outcome = await this.micro.create(project.id, request, 'issue', next.id, downloaded.map((a) => a.file!));
       if (outcome.status === 'needs_clarification') {
