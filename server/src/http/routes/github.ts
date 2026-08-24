@@ -4,6 +4,9 @@ import type { GithubRepoView } from '@pjgen/shared';
 import type { Container } from '../../container.js';
 import { notFound } from '../../core/httpError.js';
 import { toIssueDto } from '../../db/repos/index.js';
+import { AI_MARKER } from '../../github/issuePoller.js';
+
+const ACCEPTANCE_COMMENT = `pj-gen a pris en compte cette issue et va la traiter.\n\n_Message ${AI_MARKER}`;
 
 const CONCURRENT_SYNCS = 4;
 
@@ -124,7 +127,17 @@ export function registerGithubRoutes(app: FastifyInstance, c: Container): void {
     if (!issue) throw notFound('Issue introuvable');
     const updated = c.repos.issues.patch(issue.id, { decision: body.decision });
     c.bus.emit('issue.updated', issue.project_id, { issue: toIssueDto(updated) });
-    if (body.decision === 'queued') c.issuePoller.poke();
+    if (body.decision === 'queued') {
+      c.issuePoller.poke();
+      const project = c.repos.projects.byId(issue.project_id);
+      if (project?.github_repo) {
+        try {
+          await c.github.issueComment(project.github_repo, issue.number, ACCEPTANCE_COMMENT);
+        } catch (err) {
+          console.error(`[github] failed to post acceptance comment on issue #${issue.number}:`, err);
+        }
+      }
+    }
     return toIssueDto(updated);
   });
 
