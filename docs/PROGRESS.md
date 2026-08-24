@@ -10,3 +10,4 @@
 - 2026-08-24T17:35:13.330Z — vérification finale OK — prêt à déployer
 - 2026-08-24T17:38:35.472Z — T04 terminé (Commentaire GitHub automatique quand une issue est prise en compte)
 - 2026-08-24T17:38:55.503Z — vérification finale OK — prêt à déployer
+- 2026-08-24T17:46:28.030Z — T05 terminé (Router les issues GitHub volumineuses vers le pipeline complet (reopen) au lieu du micro)
