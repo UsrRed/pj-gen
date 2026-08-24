@@ -1,0 +1,32 @@
+{
+  "tasks": [
+    {
+      "taskKey": "T01",
+      "position": 0,
+      "title": "Tests d'entrées invalides pour POST /api/projects",
+      "description": "Ajouter des tests d'intégration ciblant la validation d'entrée de POST /api/projects (server/src/http/routes/projects.ts) : envoyer des payloads malformés (title vide/absent, size hors enum ProjectSize, model hors valeurs autorisées, prompt non-string ou excessivement long) et vérifier que la route répond 400 avec un message d'erreur exploitable, qu'aucun projet n'est créé en base, et que le serveur reste opérationnel ensuite (GET /api/health répond 200). Ne modifie pas le contrat de la route ni les DTOs partagés ; si la validation zod actuelle laisse passer un de ces cas, corrige-la a minima dans ce fichier pour la faire échouer proprement.",
+      "filesHint": [
+        "server/src/http/routes/projects.ts",
+        "server/src/http/routes/projects.test.ts",
+        "shared/src/index.ts"
+      ],
+      "writes": [
+        "server/src/http/routes/projects.ts",
+        "server/src/http/routes/projects.test.ts",
+        "shared/src/index.ts"
+      ],
+      "acceptance": [
+        "Un payload POST /api/projects sans title (ou title vide) répond HTTP 400 et aucune ligne n'est ajoutée à la table projects",
+        "Un payload avec size ou model hors des valeurs autorisées répond HTTP 400",
+        "Après ces requêtes invalides, GET /api/health répond toujours 200 (le serveur n'a pas planté)",
+        "Les nouveaux tests passent en local (commande de test du serveur) et sont intégrés à la suite existante"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
+    }
+  ]
+}

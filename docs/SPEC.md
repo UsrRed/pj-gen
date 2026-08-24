@@ -108,3 +108,6 @@ pj-gen pilote le CLI **Claude Code** en mode headless (`claude -p`), via l'**abo
 - Pas de clé API Anthropic en fallback — dépendance stricte à l'abonnement CLI.
 - Pas de gestion de secrets pour le déploiement au-delà de l'écriture `.env` locale (pas de vault externe).
 - Pas d'exécution multi-instance / multi-hôte de l'orchestrateur (lockfile mono-process).
+
+## Micro-révisions
+- T01 (2026-08-24): Issue GitHub #3 de @UsrRed — never trust user entry ne jamais croire l'entree utilisateur ajouter des test en pipeline pour tester si on met les mauvaises information que ca se comporte correctement 
