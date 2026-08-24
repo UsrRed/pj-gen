@@ -27,6 +27,30 @@
       "status": "done",
       "commitSha": "9249c0972219ee931074eeb213bc02946fc62fef",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T02",
+      "position": 1,
+      "title": "Traiter les issues GitHub par ordre croissant de numéro",
+      "description": "La liste des issues GitHub prises en compte (route GET /issues et logique d'auto-traitement associée) doit être triée par numéro croissant (#1, #2, #3, ...) au lieu de l'ordre actuel (probablement décroissant / plus récent d'abord). Localiser le tri/l'ordre appliqué à la liste des issues (requête repo issues et/ou boucle de traitement automatique côté github.ts) et l'inverser pour traiter/afficher d'abord les plus anciennes (numéro le plus bas). Ne pas modifier le contrat de la route GET /issues (toujours même DTO), uniquement l'ordre des éléments retournés.",
+      "filesHint": [
+        "server/src/http/routes/github.ts",
+        "server/src/db/repo.ts"
+      ],
+      "writes": [
+        "server/src/http/routes/github.ts",
+        "server/src/db/repo.ts"
+      ],
+      "acceptance": [
+        "GET /issues retourne les issues triées par numéro croissant (le premier élément a le plus petit numéro)",
+        "Le mécanisme d'auto-traitement des issues (auto-mode) traite l'issue #1 avant #2 avant #3, etc."
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }

@@ -110,4 +110,5 @@ pj-gen pilote le CLI **Claude Code** en mode headless (`claude -p`), via l'**abo
 - Pas d'exécution multi-instance / multi-hôte de l'orchestrateur (lockfile mono-process).
 
 ## Micro-révisions
+- T02 (2026-08-24): Issue GitHub #2 de @UsrRed — gh inverse inverser la liste des issue prise en compte, prendre le 1 puis le 2 puis le 3 etc...
 - T01 (2026-08-24): Issue GitHub #3 de @UsrRed — never trust user entry ne jamais croire l'entree utilisateur ajouter des test en pipeline pour tester si on met les mauvaises information que ca se comporte correctement 
