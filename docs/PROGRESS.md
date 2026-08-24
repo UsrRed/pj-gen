@@ -6,3 +6,4 @@
 - 2026-08-24T17:11:51.024Z — vérification finale OK — prêt à déployer
 - 2026-08-24T17:32:18.833Z — T02 terminé (Traiter les issues GitHub par ordre croissant de numéro)
 - 2026-08-24T17:32:38.833Z — vérification finale OK — prêt à déployer
+- 2026-08-24T17:34:53.311Z — T03 terminé (Instruire test_hardening a couvrir les parcours utilisateur front (clics, erreurs, happy path))
