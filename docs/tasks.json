@@ -51,6 +51,29 @@
       "status": "done",
       "commitSha": "9dfe2f9e3dc451041d2b863f3d0554193384c61f",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T03",
+      "position": 2,
+      "title": "Instruire test_hardening a couvrir les parcours utilisateur front (clics, erreurs, happy path)",
+      "description": "Le prompt de l'etape test_hardening (construit dans server/src/prompts/steps.ts) n'exige pas explicitement de tests E2E simulant l'utilisateur reel sur un front web. Ajouter dans le texte de ce prompt une consigne destinee a l'agent Claude executant l'etape: si le projet comporte une interface web front-end (deductible du SPEC/ARCHITECTURE deja fournis en contexte de l'etape), ecrire et executer des tests E2E bases sur un outil de simulation de navigateur (ex. Playwright) qui reproduisent de vrais clics/saisies utilisateur et verifient: (1) qu'une saisie invalide declenche un message d'erreur clair et exploitable cote UI, (2) que le parcours nominal (happy path) principal s'execute sans erreur console/reseau ni blocage d'UI. Ne pas modifier le schema de sortie zod ni le contrat StepFlow (aucun changement d'INTERFACES) - uniquement le texte du prompt.",
+      "filesHint": [
+        "server/src/prompts/steps.ts"
+      ],
+      "writes": [
+        "server/src/prompts/steps.ts"
+      ],
+      "acceptance": [
+        "Le texte du prompt de l'etape test_hardening contient une consigne explicite sur les tests E2E front simulant des clics/saisies utilisateur reels",
+        "La consigne mentionne le cas d'erreur (message clair pour saisie invalide) et le cas nominal (happy path sans erreur console/reseau)",
+        "Aucun changement au schema zod de sortie de l'etape ni au contrat StepFlow/SessionSpec"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }
