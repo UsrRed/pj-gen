@@ -97,6 +97,9 @@ class FakeGithub {
   async issueComments() {
     return [];
   }
+  async downloadIssueAttachments() {
+    return [];
+  }
   async syncState() {
     return { ahead: 0, behind: 0 };
   }
@@ -208,5 +211,46 @@ describe('IssuePoller CI gate (finalizeFixing)', () => {
     expect(issue().decision).toBe('fixed');
     expect(gh.closed).toEqual([5]);
     expect(gh.comments[0].body).toContain('Statut CI non confirmé');
+  });
+});
+
+describe('IssuePoller drainQueued — SPEC.md race guard', () => {
+  let cRef: Container | null = null;
+  let pollerRef: IssuePoller | null = null;
+  afterEach(() => {
+    pollerRef?.stop();
+    pollerRef = null;
+    cRef?.close();
+    cRef = null;
+  });
+
+  it('leaves a queued issue queued (not failed) while docs/SPEC.md is missing, then proceeds once it exists', async () => {
+    const { c } = await testContainer();
+    cRef = c;
+    const slug = 'spec-race';
+    const workspacePath = await c.ws.create(slug, 'Spec Race');
+    const id = 'spec-race-id';
+    c.repos.projects.insert({ id, slug, title: 'Spec Race', model: null, workspacePath, initialPrompt: 'test' });
+    c.repos.projects.casStatus(id, ['draft'], 'deployed');
+    c.repos.projects.patch(id, { github_repo: 'usrred/spec-race', github_private: 1, github_auto_mode: 1 });
+    // No docs/SPEC.md yet — simulates a clone whose async adoption analysis (analyzeImport) hasn't finished.
+
+    const gh = new FakeGithub();
+    gh.issues = [{ number: 9, title: 'Bug', body: 'corps', author: { login: 'alice' }, updatedAt: '2026-07-22T00:00:00Z' }];
+    const { row } = c.repos.issues.upsert(id, { number: 9, title: 'Bug', body: 'corps', author: 'alice', ghUpdatedAt: '2026-07-22T00:00:00Z' });
+    c.repos.issues.patch(row.id, { decision: 'queued' });
+
+    const poller = new IssuePoller(c, gh as unknown as GithubService, c.micro);
+    pollerRef = poller;
+    const issue = () => c.repos.issues.byNumber(id, 9)!;
+
+    await poller.tick();
+    expect(issue().decision).toBe('queued'); // retried next tick, not poisoned into 'failed'
+    expect(c.repos.micro.list(id)).toHaveLength(0); // no attempt spent while SPEC.md is missing
+
+    c.ws.writeFile(workspacePath, 'docs/SPEC.md', '# SPEC — Spec Race\n\nObjectif de test avec assez de contenu pour être valide.\n');
+    await poller.tick();
+    expect(c.repos.micro.list(id)).toHaveLength(1);
+    expect(issue().decision).toBe('fixing');
   });
 });

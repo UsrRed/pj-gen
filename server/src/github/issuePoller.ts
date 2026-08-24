@@ -189,7 +189,7 @@ export class IssuePoller {
 
   /** One issue at a time per project: queued → micro request (issue body stays in the tool-less session). */
   private async drainQueued(project: ProjectRow, ourLogin: string | null): Promise<void> {
-    const { repos } = this.deps;
+    const { repos, ws } = this.deps;
     if (this.micro.quotaBlocked()) return;
     // One in-flight fix per project — including its CI wait: piling more fixes
     // on top of a possibly-red repo would compound the breakage.
@@ -198,6 +198,12 @@ export class IssuePoller {
     if (!next) return;
     const fresh = repos.projects.byId(project.id)!;
     if (!['deployed', 'awaiting_deploy_approval', 'building', 'failed'].includes(fresh.status)) return;
+    // A freshly-cloned import's adoption session (analyzeImport) writes docs/SPEC.md
+    // asynchronously right after the clone — a poll tick can race ahead of it.
+    // generateTask hard-requires SPEC.md; treating its absence as a real failure here
+    // would permanently poison the issue (unlike needs_clarification, a 'failed' issue
+    // is never auto-requeued). Retry next tick instead.
+    if (!ws.readFile(fresh.workspace_path, 'docs/SPEC.md')) return;
 
     this.emitIssue(repos.issues.patch(next.id, { decision: 'fixing' }));
     // Comment thread: clarification replies (text + their attachments) are part of the request.

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { GithubRepoView, GithubStatusDto, IssueDto } from '@pjgen/shared';
 import { api } from '../api/client.js';
+import { useSse } from '../api/sse.js';
+import { useStore } from '../store/useStore.js';
 import { StatusBadge } from '../components/StatusBadge.js';
 import { Spinner } from '../components/ConfirmButton.js';
 import { T } from '../i18n/fr.js';
@@ -136,12 +138,14 @@ function IssuesSection({ issues, onDecision, busy }: { issues: IssueDto[]; onDec
 export function GithubPage() {
   const [status, setStatus] = useState<GithubStatusDto | null>(null);
   const [repos, setRepos] = useState<GithubRepoView[] | null>(null);
-  const [issues, setIssues] = useState<IssueDto[]>([]);
+  const issues = useStore((s) => s.issues);
+  const setIssues = useStore((s) => s.setIssues);
   const [trusted, setTrusted] = useState<string[]>([]);
   const [newTrusted, setNewTrusted] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  useSse(null);
 
   const refresh = useCallback(() => {
     setLoading(true);
@@ -171,8 +175,7 @@ export function GithubPage() {
       .finally(() => setBusy(null));
   };
 
-  const decide = (id: number, decision: 'skipped' | 'queued') =>
-    act(`issue:${id}`, () => api.issueDecision(id, decision).then((updated) => setIssues((list) => list.map((i) => (i.id === updated.id ? updated : i)))));
+  const decide = (id: number, decision: 'skipped' | 'queued') => act(`issue:${id}`, () => api.issueDecision(id, decision));
 
   if (loading && !repos) return <div className="p-10 text-center text-zinc-500">{T.loading}</div>;
 
@@ -180,7 +183,7 @@ export function GithubPage() {
   const unpublished = (repos ?? []).filter((r) => r.category === 'local_unpublished');
   const remoteOnly = (repos ?? []).filter((r) => r.category === 'remote_only');
   const issuesByProject = new Map<string, IssueDto[]>();
-  for (const i of issues) issuesByProject.set(i.projectId, [...(issuesByProject.get(i.projectId) ?? []), i]);
+  for (const i of Object.values(issues)) issuesByProject.set(i.projectId, [...(issuesByProject.get(i.projectId) ?? []), i]);
 
   return (
     <div className="space-y-6">
