@@ -101,6 +101,33 @@
       "status": "done",
       "commitSha": "c9fed15d93f17366fc25ee81747200adc47c8413",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T05",
+      "position": 4,
+      "title": "Router les issues GitHub volumineuses vers le pipeline complet (reopen) au lieu du micro",
+      "description": "Actuellement, une issue GitHub acceptee en mode auto est toujours traitee via le pipeline micro (POST /api/projects/:id/micro, MICRO_PIPELINE_ORDER: implement_task, final_verify). Ajouter une etape de classification lors de la prise en compte de l'issue (dans le service de traitement automatique des issues GitHub, cf. docs/ARCHITECTURE.md pour le localiser) qui determine si la demande depasse le perimetre d'une micro-modification (ex: nouvelle fonctionnalite, changement d'architecture, impact multi-fichiers large) plutot qu'un correctif ponctuel. Si c'est le cas, declencher POST /api/projects/:id/reopen (pipeline complet: cadrage du delta, SPEC revisee, architecture mise a jour, taches suivantes, mise a jour doc/tests) au lieu d'appeler /micro. Le commentaire GitHub automatique existant (T04) doit indiquer le mode choisi (micro ou pipeline complet). Si le contrat de decision d'issue (POST /issues/:id/decision) ou les payloads d'evenements associes changent, mettre a jour docs/INTERFACES.md dans le meme commit.",
+      "filesHint": [
+        "docs/ARCHITECTURE.md",
+        "server/src/http/routes/github.ts",
+        "docs/INTERFACES.md"
+      ],
+      "writes": [
+        "docs/ARCHITECTURE.md",
+        "server/src/http/routes/github.ts",
+        "docs/INTERFACES.md"
+      ],
+      "acceptance": [
+        "Quand une issue GitHub en mode auto est classee comme grosse modification, le systeme appelle reopen (pipeline complet) et non le micro-endpoint, observable via les evenements SSE (project.updated, issue.updated) ou le statut du projet passant en spec_ready/queued plutot qu'en execution micro seule",
+        "Le commentaire GitHub automatique poste sur l'issue mentionne explicitement le mode retenu (micro-modification vs pipeline complet)",
+        "Les issues restant de taille micro continuent d'etre traitees comme avant (non-regression)"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }
