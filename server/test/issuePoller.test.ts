@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import type { Container } from '../src/container.js';
 import type { CiState, GithubService } from '../src/github/githubService.js';
+import type { MicroService } from '../src/micro/microService.js';
 import { AI_MARKER, IssuePoller, buildIssueRequest, isPjGenComment, type IssueComment } from '../src/github/issuePoller.js';
 import { testContainer } from './helpers.js';
 
@@ -97,6 +98,9 @@ class FakeGithub {
   async issueComments() {
     return [];
   }
+  async downloadIssueAttachments() {
+    return [];
+  }
   async syncState() {
     return { ahead: 0, behind: 0 };
   }
@@ -114,6 +118,73 @@ class FakeGithub {
     this.closed.push(number);
   }
 }
+
+/** Stub MicroService: records the order issues are handed to it, always fails fast. */
+class FakeMicro {
+  calls: number[] = [];
+  quotaBlocked() {
+    return false;
+  }
+  async create(_projectId: string, _request: string, _source: 'manual' | 'issue', issueId: number | null) {
+    this.calls.push(issueId!);
+    return { status: 'failed' as const, message: 'stub' };
+  }
+}
+
+describe('IssuePoller drainQueued: processes the lowest issue number first', () => {
+  let cRef: Container | null = null;
+  let pollerRef: IssuePoller | null = null;
+  afterEach(() => {
+    pollerRef?.stop();
+    pollerRef = null;
+    cRef?.close();
+    cRef = null;
+  });
+
+  it('among several queued issues, the lowest number is drained before the higher ones', async () => {
+    const { c } = await testContainer();
+    cRef = c;
+    const slug = 'drain-order';
+    const workspacePath = await c.ws.create(slug, 'Drain Order');
+    const id = 'drain-order-id';
+    c.repos.projects.insert({ id, slug, title: 'Drain Order', model: null, workspacePath, initialPrompt: 'test' });
+    c.repos.projects.casStatus(id, ['draft'], 'deployed');
+    c.repos.projects.patch(id, { github_repo: 'usrred/drain-order', github_private: 1, github_auto_mode: 1 });
+
+    const numbers = [9, 2, 5];
+    const idByNumber = new Map<number, number>();
+    for (const number of numbers) {
+      const { row } = c.repos.issues.upsert(id, {
+        number,
+        title: `Issue ${number}`,
+        body: 'corps',
+        author: 'alice',
+        ghUpdatedAt: '2026-07-22T00:00:00Z',
+      });
+      c.repos.issues.patch(row.id, { decision: 'queued' });
+      idByNumber.set(number, row.id);
+    }
+
+    const gh = new FakeGithub();
+    // Keep the issues open across ticks (sync would otherwise close anything absent from `remote`).
+    gh.issues = numbers.map((number) => ({
+      number,
+      title: `Issue ${number}`,
+      body: 'corps',
+      author: { login: 'alice' },
+      updatedAt: '2026-07-22T00:00:00Z',
+    }));
+    const micro = new FakeMicro();
+    const poller = new IssuePoller(c, gh as unknown as GithubService, micro as unknown as MicroService);
+    pollerRef = poller;
+
+    await poller.tick(); // one in-flight fix per project: drains #2, then fails fast
+    await poller.tick(); // frees the gate: drains #5
+    await poller.tick(); // frees the gate: drains #9
+
+    expect(micro.calls).toEqual([idByNumber.get(2), idByNumber.get(5), idByNumber.get(9)]);
+  });
+});
 
 describe('IssuePoller CI gate (finalizeFixing)', () => {
   let cRef: Container | null = null;

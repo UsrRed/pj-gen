@@ -81,11 +81,11 @@ export class IssuesRepo {
   }
 
   list(projectId: string): IssueRow[] {
-    return this.db.prepare('SELECT * FROM issues WHERE project_id = ? ORDER BY number DESC').all(projectId) as IssueRow[];
+    return this.db.prepare('SELECT * FROM issues WHERE project_id = ? ORDER BY number ASC').all(projectId) as IssueRow[];
   }
 
   listAll(): IssueRow[] {
-    return this.db.prepare('SELECT * FROM issues ORDER BY updated_at DESC LIMIT 500').all() as IssueRow[];
+    return this.db.prepare('SELECT * FROM issues ORDER BY number ASC LIMIT 500').all() as IssueRow[];
   }
 
   byDecision(projectId: string, decisions: IssueDecision[]): IssueRow[] {
