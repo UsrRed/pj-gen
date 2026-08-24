@@ -368,6 +368,7 @@ export function testHardeningPrompt(stack: StackInfo): string {
   return `Durcis la suite de tests de ce projet.
 - Lis docs/SPEC.md pour identifier les cas limites importants (entrées invalides, bords, erreurs).
 - Ajoute des tests de cas limites pour la logique cœur uniquement (pas d'UI, pas de redondance).
+- Si le projet comporte une interface web front-end (déductible de docs/SPEC.md et docs/ARCHITECTURE.md): écris et exécute des tests end-to-end avec un outil de simulation de navigateur (ex. Playwright) qui reproduisent de vrais clics/saisies utilisateur, et vérifient au minimum (1) qu'une saisie invalide déclenche un message d'erreur clair et exploitable côté UI, et (2) que le parcours nominal (happy path) principal s'exécute de bout en bout sans erreur console/réseau ni blocage d'UI.
 - Garde la suite rapide (< 60 s). Si un test légitime échoue, corrige le code.
 - « ${stack.test_cmd} » doit passer. Termine par un commit \`test: harden edge cases\`.`;
 }
