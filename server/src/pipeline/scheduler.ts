@@ -67,6 +67,12 @@ export class Scheduler implements SchedulerHooks {
     const w = windowDto(repos);
     const cut = repos.settings.getScheduledCut();
     const ev = cut ? evaluateCut(cut, w.resetsAt, w.tokensInWindow.total, w.estimatedCeiling) : null;
+    if (cut && ev?.expired) {
+      // Spent: auto-clear now so callers never observe a "virtually null" cut that
+      // still lingers in settings (checkCut's timer would clear it too, but later).
+      repos.settings.setScheduledCut(null);
+      this.clearCutTimer();
+    }
     return {
       limitedUntil: q.limited_until,
       lastHitAt: q.last_hit_at,
