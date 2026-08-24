@@ -74,6 +74,33 @@
       "status": "done",
       "commitSha": "912987e258f75980556c132140c9959324a6617a",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T04",
+      "position": 3,
+      "title": "Commentaire GitHub automatique quand une issue est prise en compte",
+      "description": "Quand la décision d'une issue GitHub aboutit à une prise en compte (acceptation → création de tâche/micro-request), poster automatiquement un commentaire sur l'issue GitHub correspondante pour informer l'auteur. Entrée: résultat de la décision d'issue (route POST /issues/:id/decision côté server/src/http/routes/github.ts, ou le service qui traite ces décisions), contenant repo/owner et numéro d'issue GitHub, plus le client GitHub (octokit) déjà utilisé pour push/link. Sortie: un commentaire (texte en français, ex. \"pj-gen a pris en compte cette issue et va la traiter.\") posté via l'API GitHub sur l'issue concernée, uniquement dans le cas d'acceptation (pas de commentaire si l'issue est rejetée/ignorée). L'échec de l'appel API de commentaire ne doit pas faire échouer le traitement de la décision (log d'erreur uniquement). Ne modifie pas les contrats figés d'INTERFACES.md (pas de nouvelle route ni de nouveau champ de DTO); si un événement SSE existant (issue.updated) doit refléter ce commentaire, le réutiliser sans changer son schéma.",
+      "filesHint": [
+        "server/src/http/routes/github.ts",
+        "server/src/github/service.ts",
+        "server/src/github/issues.ts"
+      ],
+      "writes": [
+        "server/src/http/routes/github.ts",
+        "server/src/github/service.ts",
+        "server/src/github/issues.ts"
+      ],
+      "acceptance": [
+        "Quand une issue GitHub est acceptée via la décision (POST /issues/:id/decision ou équivalent), un commentaire apparaît sur la page de l'issue GitHub correspondante confirmant sa prise en compte",
+        "Aucun commentaire n'est posté si l'issue est rejetée ou ignorée",
+        "Un échec de l'appel API GitHub pour poster le commentaire est loggé mais ne bloque pas le reste du traitement de la décision"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }
