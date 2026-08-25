@@ -185,6 +185,48 @@
       "status": "done",
       "commitSha": "7a3cdbef8d066d6194bceeb331aff8bc0292a5d9",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T08",
+      "position": 7,
+      "title": "Réglages globaux + secrets opérateur pour les intégrations optionnelles",
+      "description": "Ajouter SettingsDto.integrations: { context7: boolean, exa: boolean, memoryProvider: 'none'|'mem0'|'supermemory' } (shared/src/types.ts), désactivé par défaut, exposé via GET/PATCH /api/settings existant (objet complet requis au PATCH, même contrat que notifyEvents). Créer server/src/access/integrationSecrets.ts (mapping intégration -> nom de variable .env : CONTEXT7_API_KEY, EXA_API_KEY, MEM0_API_KEY, SUPERMEMORY_API_KEY). Réutiliser server/src/access/envFile.ts (readEnvKeys/writeEnv) en le pointant sur c.config.dataDir (global, ~/.pj-gen/.env, 0600) au lieu d'un workspace de projet : deux nouvelles routes GET/POST /api/settings/integrations/secrets (présence par nom seulement, jamais la valeur, whitelist stricte). Ajouter le panneau « Intégrations optionnelles » dans web/src/pages/SettingsPage.tsx (toggle par intégration + champ clé masqué write-only, off par défaut) — aucune création de compte automatique, l'opérateur fournit sa propre clé.",
+      "filesHint": [
+        "shared/src/types.ts",
+        "server/src/db/repos/settings.ts",
+        "server/src/http/routes/misc.ts",
+        "server/src/access/integrationSecrets.ts",
+        "web/src/pages/SettingsPage.tsx",
+        "web/src/api/client.ts",
+        "web/src/i18n/fr.ts",
+        "docs/INTERFACES.md"
+      ],
+      "writes": [
+        "shared/src/types.ts",
+        "server/src/db/repos/settings.ts",
+        "server/src/http/routes/misc.ts",
+        "server/src/access/integrationSecrets.ts",
+        "server/test/integrationSettings.test.ts",
+        "web/src/pages/SettingsPage.tsx",
+        "web/src/api/client.ts",
+        "web/src/i18n/fr.ts",
+        "docs/INTERFACES.md"
+      ],
+      "acceptance": [
+        "GET /api/settings expose integrations désactivé par défaut ({context7:false, exa:false, memoryProvider:'none'})",
+        "PATCH /api/settings {integrations:{...}} persiste les trois champs sans effacer les autres réglages",
+        "POST /api/settings/integrations/secrets écrit la clé dans <dataDir>/.env (0600) et ne la renvoie jamais dans la réponse HTTP",
+        "GET /api/settings/integrations/secrets ne retourne que les NOMS des variables déjà présentes, jamais leur valeur",
+        "Une variable hors whitelist est rejetée (400)",
+        "Le panneau Settings web permet d'activer une intégration et de saisir sa clé sans jamais l'afficher en clair après enregistrement",
+        "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
+      ],
+      "dependsOn": [],
+      "after": ["T07"],
+      "phase": "foundation",
+      "status": "done",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }

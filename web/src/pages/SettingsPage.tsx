@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react';
-import { MODEL_NAMES, type LanStatusDto, type ModelName, type SettingsDto } from '@pjgen/shared';
+import { MEMORY_PROVIDERS, MODEL_NAMES, type LanStatusDto, type MemoryProvider, type ModelName, type SettingsDto } from '@pjgen/shared';
 import { api } from '../api/client.js';
 import { useStore } from '../store/useStore.js';
 import { ALL_STEP_LABELS, T } from '../i18n/fr.js';
+
+const INTEGRATION_SECRET_VARS = {
+  context7: 'CONTEXT7_API_KEY',
+  exa: 'EXA_API_KEY',
+  mem0: 'MEM0_API_KEY',
+  supermemory: 'SUPERMEMORY_API_KEY',
+} as const;
 
 export function SettingsPage() {
   const [form, setForm] = useState<SettingsDto | null>(null);
@@ -10,14 +17,33 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notifyResult, setNotifyResult] = useState<string | null>(null);
   const [lan, setLan] = useState<LanStatusDto | null>(null);
+  const [secretsPresent, setSecretsPresent] = useState<string[]>([]);
+  const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
+  const [keySaved, setKeySaved] = useState<string | null>(null);
   const setSettings = useStore((s) => s.setSettings);
+
+  const refreshSecrets = () => void api.integrationSecrets().then((r) => setSecretsPresent(r.secretsPresent));
 
   useEffect(() => {
     void api.settings().then(setForm);
     void api.lanStatus().then(setLan).catch(() => undefined);
+    refreshSecrets();
   }, []);
 
+  const saveIntegrationKey = async (varName: string) => {
+    const value = (keyInputs[varName] ?? '').trim();
+    if (!value) return;
+    await api.putIntegrationSecrets({ [varName]: value });
+    setKeyInputs({ ...keyInputs, [varName]: '' });
+    setKeySaved(varName);
+    setTimeout(() => setKeySaved(null), 2000);
+    refreshSecrets();
+  };
+
   if (!form) return <div className="p-10 text-center text-zinc-500">{T.loading}</div>;
+
+  const memoryProvider = form.integrations.memoryProvider;
+  const memoryVar = memoryProvider === 'none' ? null : INTEGRATION_SECRET_VARS[memoryProvider];
 
   const save = async () => {
     setError(null);
@@ -222,6 +248,80 @@ export function SettingsPage() {
         )}
       </div>
 
+      <div className="card space-y-4 p-5">
+        <div>
+          <h2 className="text-sm font-semibold text-zinc-300">{T.sIntegrationsSection}</h2>
+          <p className="mt-1 text-xs text-zinc-600">{T.sIntegrationsHint}</p>
+        </div>
+
+        <div className="space-y-2 border-t border-zinc-800 pt-3">
+          <label className="flex items-center justify-between gap-4 text-sm">
+            <span title={T.sIntegrationContext7Hint}>{T.sIntegrationContext7}</span>
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={form.integrations.context7}
+              onChange={(e) => setForm({ ...form, integrations: { ...form.integrations, context7: e.target.checked } })}
+            />
+          </label>
+          <IntegrationKeyRow
+            varName={INTEGRATION_SECRET_VARS.context7}
+            present={secretsPresent.includes(INTEGRATION_SECRET_VARS.context7)}
+            value={keyInputs[INTEGRATION_SECRET_VARS.context7] ?? ''}
+            onChange={(v) => setKeyInputs({ ...keyInputs, [INTEGRATION_SECRET_VARS.context7]: v })}
+            onSave={() => void saveIntegrationKey(INTEGRATION_SECRET_VARS.context7)}
+            justSaved={keySaved === INTEGRATION_SECRET_VARS.context7}
+          />
+        </div>
+
+        <div className="space-y-2 border-t border-zinc-800 pt-3">
+          <label className="flex items-center justify-between gap-4 text-sm">
+            <span title={T.sIntegrationExaHint}>{T.sIntegrationExa}</span>
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={form.integrations.exa}
+              onChange={(e) => setForm({ ...form, integrations: { ...form.integrations, exa: e.target.checked } })}
+            />
+          </label>
+          <IntegrationKeyRow
+            varName={INTEGRATION_SECRET_VARS.exa}
+            present={secretsPresent.includes(INTEGRATION_SECRET_VARS.exa)}
+            value={keyInputs[INTEGRATION_SECRET_VARS.exa] ?? ''}
+            onChange={(v) => setKeyInputs({ ...keyInputs, [INTEGRATION_SECRET_VARS.exa]: v })}
+            onSave={() => void saveIntegrationKey(INTEGRATION_SECRET_VARS.exa)}
+            justSaved={keySaved === INTEGRATION_SECRET_VARS.exa}
+          />
+        </div>
+
+        <div className="space-y-2 border-t border-zinc-800 pt-3">
+          <label className="flex items-center justify-between gap-4 text-sm">
+            <span title={T.sIntegrationMemoryHint}>{T.sIntegrationMemory}</span>
+            <select
+              className="input !w-40"
+              value={form.integrations.memoryProvider}
+              onChange={(e) => setForm({ ...form, integrations: { ...form.integrations, memoryProvider: e.target.value as MemoryProvider } })}
+            >
+              {MEMORY_PROVIDERS.map((p) => (
+                <option key={p} value={p}>
+                  {p === 'none' ? T.sIntegrationMemoryNone : p}
+                </option>
+              ))}
+            </select>
+          </label>
+          {memoryVar && (
+            <IntegrationKeyRow
+              varName={memoryVar}
+              present={secretsPresent.includes(memoryVar)}
+              value={keyInputs[memoryVar] ?? ''}
+              onChange={(v) => setKeyInputs({ ...keyInputs, [memoryVar]: v })}
+              onSave={() => void saveIntegrationKey(memoryVar)}
+              justSaved={keySaved === memoryVar}
+            />
+          )}
+        </div>
+      </div>
+
       <div className="card p-5">
         <h2 className="mb-1 text-sm font-semibold text-zinc-300">{T.sStepModels}</h2>
         <p className="mb-3 text-xs text-zinc-600">{T.sStepModelsHint}</p>
@@ -285,6 +385,29 @@ export function SettingsPage() {
           {T.save}
         </button>
       </div>
+    </div>
+  );
+}
+
+/** Write-only API key row: never receives a value back, only whether one is already set. */
+function IntegrationKeyRow(props: { varName: string; present: boolean; value: string; onChange: (v: string) => void; onSave: () => void; justSaved: boolean }) {
+  return (
+    <div className="flex items-center gap-2 pl-1 text-xs">
+      <span className="w-32 shrink-0 text-zinc-500">{T.sIntegrationKeyLabel}</span>
+      <input
+        type="password"
+        autoComplete="off"
+        className="input !h-7 flex-1 !text-xs"
+        placeholder={T.sIntegrationKeyPlaceholder}
+        value={props.value}
+        onChange={(e) => props.onChange(e.target.value)}
+      />
+      <button className="btn-ghost !h-7 !px-2 !text-xs" disabled={!props.value.trim()} onClick={props.onSave}>
+        {T.sIntegrationKeySave}
+      </button>
+      <span className={props.present ? 'text-emerald-400' : 'text-zinc-600'}>
+        {props.justSaved ? T.sIntegrationKeySaved : props.present ? T.sIntegrationKeySet : T.sIntegrationKeyMissing}
+      </span>
     </div>
   );
 }

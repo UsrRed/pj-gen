@@ -6,6 +6,7 @@
 - `ProjectSize = small | mvp | large | enterprise` (figé à la validation du SPEC).
 - `TokenUsage = { input, output, cacheCreation, cacheRead, total }`.
 - `AccessDto` (access.ts) : `{ id, projectId, key, kind: AccessKind, label, required, why, fields: Record<string,string>, secretEnvVars: string[], status: needed|provided|skipped, source: cadrage|user, lastTestAt, lastTestOk, lastTestDetail }`. `ACCESS_KINDS = ssh|domain|database|api_key|smtp|object_storage|other`, champs par type dans `ACCESS_FIELD_SPECS`.
+- `IntegrationsSettings` (types.ts, sur `SettingsDto.integrations`) : `{ context7: boolean; exa: boolean; memoryProvider: 'none'|'mem0'|'supermemory' }` — toutes désactivées par défaut (issue #8). Objet complet requis au PATCH (même contrat que `notifyEvents` : `SettingsRepo.set` remplace tout le blob stocké, un payload partiel écraserait silencieusement les champs non envoyés).
 - `EventPayloads` (events.ts) : 16 types d'événements SSE, dont `project.updated`, `step.started/log/finished`, `task.updated`, `chat.message`, `quota.updated`, `access.updated`, `app.status/log`, `issue.updated`, `micro.updated`, `boot.notice`.
 
 ## API HTTP (Fastify, préfixe `/api`)
@@ -20,6 +21,8 @@
 **GitHub** (`github.ts`) : `GET /github/status|repos`, `POST /github/clone`, `POST /projects/:id/github/link|push|generate-ci`, `PATCH /projects/:id/github/auto-mode`, `GET /issues`, `POST /issues/:id/decision`, `GET/POST/DELETE /github/trusted-users[/:login]`.
 
 **Accès** (`access.ts`) : `GET/POST /projects/:id/access`, `PATCH/DELETE /projects/:id/access/:accessId`, `POST /projects/:id/access/:accessId/secrets` (seule route qui manipule des valeurs secrètes — écrit `.env`, ne les stocke ni ne les renvoie jamais), `POST /projects/:id/access/:accessId/test`.
+
+**Intégrations optionnelles** (`misc.ts`, issue #8) : `GET /api/settings/integrations/secrets` (présence par nom uniquement, jamais la valeur), `POST /api/settings/integrations/secrets` (`{values: Record<string,string>}`, whitelist `CONTEXT7_API_KEY|EXA_API_KEY|MEM0_API_KEY|SUPERMEMORY_API_KEY` définie dans `access/integrationSecrets.ts`) — écrit dans `<dataDir>/.env` (global, 0600, réutilise `access/envFile.ts`) au lieu du `.env` d'un workspace. Activation/désactivation via `PATCH /api/settings {integrations}`.
 
 **SSE** (`sse.ts`) : `GET /events` (global), `GET /projects/:id/events` (scopé), support `Last-Event-ID` pour rejeu des événements manqués.
 

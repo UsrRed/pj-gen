@@ -16,3 +16,5 @@
 - 2026-08-25T21:20:20.606Z — vérification finale OK — prêt à déployer
 - 2026-08-25T22:28:38.000Z — T07 terminé (Support MCP scopé par session dans SessionSpec)
 - 2026-08-25T22:28:38.000Z — vérification finale OK
+- 2026-08-25T22:34:52.000Z — T08 terminé (Réglages globaux + secrets opérateur pour les intégrations optionnelles)
+- 2026-08-25T22:34:52.000Z — vérification finale OK
