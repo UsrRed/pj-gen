@@ -222,7 +222,9 @@
         "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
       ],
       "dependsOn": [],
-      "after": ["T07"],
+      "after": [
+        "T07"
+      ],
       "phase": "foundation",
       "status": "done",
       "commitSha": "b758ac9f61b439dc7e615a636640a2c745cb45dd",
@@ -335,19 +337,32 @@
       "position": 11,
       "title": "context7 (doc de bibliothèques) sur architecture/task_breakdown",
       "description": "Implémentée avec T10/T11 (plomberie commune server/src/pipeline/integrations.ts, un seul commit). context7Mcp(deps) (server/src/pipeline/integrations.ts) retourne null tant que settings.integrations.context7 est faux ou que CONTEXT7_API_KEY est absente de <dataDir>/.env, sinon { mcpConfig: [...], tools: ['mcp__context7__*'] }. Branché dans stepArchitecture et stepTaskBreakdown (server/src/pipeline/steps.ts) : quand actif, remplace tools:'none' par la liste retournée, passe mcpConfig à runGenerationStep (nouveau champ GenOpts.mcpConfig, threadé jusqu'à SessionSpec), et ajoute context7Block (server/src/prompts/steps.ts) au prompt pour inciter à vérifier la doc/version à jour d'une lib avant de la fixer.",
-      "filesHint": ["server/src/pipeline/integrations.ts", "server/src/pipeline/steps.ts", "server/src/prompts/steps.ts"],
-      "writes": ["server/src/pipeline/integrations.ts", "server/src/pipeline/steps.ts", "server/src/prompts/steps.ts", "server/test/integrations.test.ts", "docs/INTERFACES.md"],
+      "filesHint": [
+        "server/src/pipeline/integrations.ts",
+        "server/src/pipeline/steps.ts",
+        "server/src/prompts/steps.ts"
+      ],
+      "writes": [
+        "server/src/pipeline/integrations.ts",
+        "server/src/pipeline/steps.ts",
+        "server/src/prompts/steps.ts",
+        "server/test/integrations.test.ts",
+        "docs/INTERFACES.md"
+      ],
       "acceptance": [
         "context7Mcp retourne null par défaut (désactivé) et quand activé sans clé enregistrée",
         "context7Mcp retourne le bon mcpConfig (serveur context7, clé injectée dans env) et l'allowlist mcp__context7__* une fois activé + clé présente",
         "stepArchitecture/stepTaskBreakdown utilisent ce résultat quand disponible, sans changer de comportement quand l'intégration est désactivée",
         "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
       ],
-      "dependsOn": ["T07", "T08"],
+      "dependsOn": [
+        "T07",
+        "T08"
+      ],
       "after": [],
       "phase": "core",
       "status": "done",
-      "commitSha": null,
+      "commitSha": "3efd036fc6529e4e5a23ecec9b8499c04b5f75bb",
       "worktreeDir": null
     },
     {
@@ -355,19 +370,32 @@
       "position": 12,
       "title": "EXA (recherche web) sur design_benchmark",
       "description": "Implémentée avec T09/T11 (même commit). exaMcp(deps) (server/src/pipeline/integrations.ts), même gating que context7Mcp (settings.integrations.exa + EXA_API_KEY). Branché dans stepDesignBenchmark (server/src/pipeline/steps.ts) : les tools WebSearch/WebFetch déjà utilisés sont complétés par mcp__exa__* quand actif, mcpConfig passé à runGenerationStep, exaBlock (server/src/prompts/steps.ts) ajouté au prompt.",
-      "filesHint": ["server/src/pipeline/integrations.ts", "server/src/pipeline/steps.ts", "server/src/prompts/steps.ts"],
-      "writes": ["server/src/pipeline/integrations.ts", "server/src/pipeline/steps.ts", "server/src/prompts/steps.ts", "server/test/integrations.test.ts", "docs/INTERFACES.md"],
+      "filesHint": [
+        "server/src/pipeline/integrations.ts",
+        "server/src/pipeline/steps.ts",
+        "server/src/prompts/steps.ts"
+      ],
+      "writes": [
+        "server/src/pipeline/integrations.ts",
+        "server/src/pipeline/steps.ts",
+        "server/src/prompts/steps.ts",
+        "server/test/integrations.test.ts",
+        "docs/INTERFACES.md"
+      ],
       "acceptance": [
         "exaMcp retourne null par défaut et quand activé sans clé",
         "exaMcp retourne le mcpConfig EXA et mcp__exa__* une fois activé + clé présente",
         "stepDesignBenchmark garde WebSearch/WebFetch dans tous les cas, ajoute EXA seulement si actif",
         "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
       ],
-      "dependsOn": ["T07", "T08"],
+      "dependsOn": [
+        "T07",
+        "T08"
+      ],
       "after": [],
       "phase": "core",
       "status": "done",
-      "commitSha": null,
+      "commitSha": "3efd036fc6529e4e5a23ecec9b8499c04b5f75bb",
       "worktreeDir": null
     },
     {
@@ -375,8 +403,19 @@
       "position": 13,
       "title": "Mémoire persistante (mem0 ou supermemory) en cadrage",
       "description": "Implémentée avec T09/T10 (même commit). memoryMcp(deps) (server/src/pipeline/integrations.ts) : settings.integrations.memoryProvider ('none'|'mem0'|'supermemory', un seul actif à la fois — jamais les deux ensemble) + clé correspondante (MEM0_API_KEY ou SUPERMEMORY_API_KEY) dans <dataDir>/.env. Branché dans ChatService.runCadrageTurn (server/src/cadrage/chatService.ts) : remplace tools:'none' par l'allowlist du provider actif, passe mcpConfig, ajoute memoryBlock (server/src/prompts/steps.ts) au system prompt pour rappeler/enregistrer les préférences utilisateur d'un projet à l'autre.",
-      "filesHint": ["server/src/pipeline/integrations.ts", "server/src/cadrage/chatService.ts", "server/src/prompts/steps.ts"],
-      "writes": ["server/src/pipeline/integrations.ts", "server/src/cadrage/chatService.ts", "server/src/prompts/steps.ts", "server/test/integrations.test.ts", "server/test/cadrageMemory.test.ts", "docs/INTERFACES.md"],
+      "filesHint": [
+        "server/src/pipeline/integrations.ts",
+        "server/src/cadrage/chatService.ts",
+        "server/src/prompts/steps.ts"
+      ],
+      "writes": [
+        "server/src/pipeline/integrations.ts",
+        "server/src/cadrage/chatService.ts",
+        "server/src/prompts/steps.ts",
+        "server/test/integrations.test.ts",
+        "server/test/cadrageMemory.test.ts",
+        "docs/INTERFACES.md"
+      ],
       "acceptance": [
         "memoryMcp retourne null par défaut, quand provider='none', et quand un provider est choisi sans clé enregistrée",
         "memoryMcp retourne le mcpConfig du SEUL provider choisi (jamais mem0 et supermemory en même temps)",
@@ -384,11 +423,14 @@
         "runCadrageTurn envoie l'allowlist mcp__<provider>__* et le mcpConfig scopé quand la mémoire est activée + clé présente",
         "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
       ],
-      "dependsOn": ["T07", "T08"],
+      "dependsOn": [
+        "T07",
+        "T08"
+      ],
       "after": [],
       "phase": "core",
       "status": "done",
-      "commitSha": null,
+      "commitSha": "3efd036fc6529e4e5a23ecec9b8499c04b5f75bb",
       "worktreeDir": null
     }
   ]
