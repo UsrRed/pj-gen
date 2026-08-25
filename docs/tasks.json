@@ -152,6 +152,39 @@
       "status": "done",
       "commitSha": "7c60761d6df59d4e213d7efe91988969034e735f",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T07",
+      "position": 6,
+      "title": "Support MCP scopé par session dans SessionSpec",
+      "description": "Ajouter au contrat SessionSpec (server/src/claude/types.ts) un champ optionnel mcpConfig: McpServerConfig[] (name/command/args/env) permettant d'allowlister explicitement un ou plusieurs serveurs MCP pour UNE session donnée, sans jamais ouvrir sur un config MCP projet/utilisateur. Dans server/src/claude/sessionArgs.ts (buildArgs), --strict-mcp-config reste toujours émis (comportement par défaut inchangé) ; quand spec.mcpConfig est fourni, écrire un fichier JSON temporaire (os.tmpdir(), permissions 0600, nommé par sessionId) contenant uniquement ces serveurs et le passer via --mcp-config <path>. buildArgs retourne désormais { argv, mcpConfigPath } au lieu de argv seul ; server/src/claude/runner.ts consomme ce nouveau retour et supprime le fichier temporaire à la fermeture du process (best-effort, non bloquant). Aucun branchement pipeline dans cette tâche : c'est la plomberie de base pour T09/T10/T11.",
+      "filesHint": [
+        "server/src/claude/types.ts",
+        "server/src/claude/sessionArgs.ts",
+        "server/src/claude/runner.ts",
+        "docs/INTERFACES.md"
+      ],
+      "writes": [
+        "server/src/claude/types.ts",
+        "server/src/claude/sessionArgs.ts",
+        "server/src/claude/runner.ts",
+        "server/test/mcpConfig.test.ts",
+        "server/test/readerAgent.test.ts",
+        "docs/INTERFACES.md"
+      ],
+      "acceptance": [
+        "Un SessionSpec sans mcpConfig produit un argv identique à avant (--strict-mcp-config seul, pas de --mcp-config, aucun fichier écrit)",
+        "Un SessionSpec avec mcpConfig produit --strict-mcp-config ET --mcp-config <fichier>, le fichier contenant exactement les serveurs listés (aucun autre)",
+        "Le fichier temporaire est supprimé après la fin du run (vérifié par test ou lecture du code de nettoyage)",
+        "docs/INTERFACES.md documente le nouveau champ mcpConfig et le nouveau retour de buildArgs",
+        "La suite de tests server passe en entier (npm test)"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "foundation",
+      "status": "queued",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }

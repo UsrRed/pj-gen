@@ -14,3 +14,5 @@
 - 2026-08-24T17:48:26.071Z — vérification finale OK — prêt à déployer
 - 2026-08-25T21:20:00.635Z — T06 terminé (Escalader une micro-requête bloquée vers le pipeline complet au lieu de l'échouer)
 - 2026-08-25T21:20:20.606Z — vérification finale OK — prêt à déployer
+- 2026-08-25T22:28:38.000Z — T07 terminé (Support MCP scopé par session dans SessionSpec)
+- 2026-08-25T22:28:38.000Z — vérification finale OK

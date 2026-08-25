@@ -27,12 +27,15 @@
 
 ```ts
 // server/src/claude/types.ts
+interface McpServerConfig { name: string; command: string; args?: string[]; env?: Record<string,string>; }
 interface SessionSpec {
   cwd: string; prompt: string; sessionId: string; resume: boolean; forkSession?: boolean;
   model: string; fallbackModel?: string;
   tools: 'none' | 'default' | string[];
   jsonSchema?: object; appendSystemPrompt?: string;
   maxBudgetUsd?: number; maxTurns: number; timeoutMs: number;
+  /** Optional per-session MCP allowlist (T08+: context7/EXA/mémoire). Absent = zéro serveur (défaut inchangé). */
+  mcpConfig?: McpServerConfig[];
 }
 type RunnerFn = (spec: SessionSpec, hooks?: RunHooks) => RunHandle;
 interface RunHandle { pid: number|null; result: Promise<RunResult>; cancel(reason): void; }
@@ -43,6 +46,8 @@ interface RunResult {
 }
 ```
 Implémentations : `claude/runner.ts` (`createRealRunner`, spawn `claude` CLI, stdin=prompt, parse stdout NDJSON) et `claude/fakeRunner.ts` (simulation, `PJGEN_FAKE_CLI=1`). Point d'entrée commun : `executeClaudeRun(deps, ExecOpts)` (`pipeline/stepRunner.ts`) — bookkeeping DB (`step_runs`), logs, notification quota.
+
+`claude/sessionArgs.ts` `buildArgs(spec, caps): { argv: string[]; mcpConfigPath: string | null }` — `--strict-mcp-config` est TOUJOURS émis ; si `spec.mcpConfig` est fourni, un fichier JSON temporaire (`os.tmpdir()`, `0600`) listant uniquement ces serveurs est écrit et passé via `--mcp-config <path>` (allowlist explicite, jamais un config projet/utilisateur). `runner.ts` supprime ce fichier à la fermeture du process (best-effort).
 
 ## Contrat interne : étape de pipeline
 

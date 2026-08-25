@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import type { Config } from '../config.js';
 import type { Capabilities } from './capabilities.js';
 import { buildArgs, buildEnv } from './sessionArgs.js';
@@ -25,7 +26,7 @@ export function usageOf(evt: ClaudeEvent | null): RunUsage {
 
 export function createRealRunner(config: Config, caps: Capabilities) {
   return function run(spec: SessionSpec, hooks: RunHooks = {}): RunHandle {
-    const argv = buildArgs(spec, caps);
+    const { argv, mcpConfigPath } = buildArgs(spec, caps);
     const env = buildEnv(config);
     const startedAt = Date.now();
 
@@ -149,6 +150,13 @@ export function createRealRunner(config: Config, caps: Capabilities) {
       child.on('close', (code) => {
         clearTimeout(timeout);
         if (killTimer) clearTimeout(killTimer);
+        if (mcpConfigPath) {
+          try {
+            fs.unlinkSync(mcpConfigPath);
+          } catch {
+            /* best-effort cleanup */
+          }
+        }
         for (const line of splitter.flush()) handleLine(line);
         for (const line of stderrSplitter.flush()) hooks.onLog?.({ kind: 'stderr', line, display: `⚠ ${line.slice(0, 500)}` });
 

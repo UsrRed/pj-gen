@@ -23,7 +23,7 @@ function agentsArg(argv: string[]): string | null {
 
 describe('Sous-agent lecteur (reconnaissance Haiku)', () => {
   it('injecte --agents dans les sessions à pleine autonomie', () => {
-    const arg = agentsArg(buildArgs(spec('default'), FAKE_CAPABILITIES));
+    const arg = agentsArg(buildArgs(spec('default'), FAKE_CAPABILITIES).argv);
     expect(arg).not.toBeNull();
     const parsed = JSON.parse(arg!) as typeof READER_AGENTS;
     expect(parsed.lecteur.model).toBe('haiku');
@@ -32,12 +32,12 @@ describe('Sous-agent lecteur (reconnaissance Haiku)', () => {
   });
 
   it("n'injecte pas --agents dans les sessions sans outils ni les allowlists nommées", () => {
-    expect(agentsArg(buildArgs(spec('none'), FAKE_CAPABILITIES))).toBeNull();
-    expect(agentsArg(buildArgs(spec(['WebSearch', 'WebFetch']), FAKE_CAPABILITIES))).toBeNull();
+    expect(agentsArg(buildArgs(spec('none'), FAKE_CAPABILITIES).argv)).toBeNull();
+    expect(agentsArg(buildArgs(spec(['WebSearch', 'WebFetch']), FAKE_CAPABILITIES).argv)).toBeNull();
   });
 
   it('respecte le gate de capability (CLI sans --agents)', () => {
-    const argv = buildArgs(spec('default'), { ...FAKE_CAPABILITIES, hasAgents: false });
+    const { argv } = buildArgs(spec('default'), { ...FAKE_CAPABILITIES, hasAgents: false });
     expect(agentsArg(argv)).toBeNull();
   });
 
