@@ -128,6 +128,30 @@
       "status": "done",
       "commitSha": "f189c652ebefd0ce5d2c89b6ca1e05e287a02934",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T06",
+      "position": 5,
+      "title": "Escalader une micro-requête bloquée vers le pipeline complet au lieu de l'échouer",
+      "description": "Dans le service de micro-modification (MicroService, cf. `server/src/pipeline/micro.ts` ou équivalent référencé par ARCHITECTURE.md), quand l'exécution d'une requête `micro` (pipeline `implement_task, final_verify`) échoue parce que le changement dépasse la portée d'une micro-modification (ex: `final_verify` échoue de façon répétée, ou detection de scope trop large déjà utilisée par T05), ne pas marquer la requête comme `failed`/bloquée définitivement. À la place, déclencher automatiquement l'équivalent du `reopen` (cadrage delta + pipeline complet) en réutilisant la logique déjà en place pour router les issues GitHub volumineuses (T05). Entrées: un `micro_request` en échec avec sa raison d'échec. Sortie: soit succès micro classique, soit re-routage vers `POST /projects/:id/reopen` avec les infos de la requête initiale, et mise à jour du statut exposée via l'événement `micro.updated`.",
+      "filesHint": [
+        "server/src/pipeline/micro.ts",
+        "server/src/pipeline/engine.ts"
+      ],
+      "writes": [
+        "server/src/pipeline/micro.ts",
+        "server/src/pipeline/engine.ts"
+      ],
+      "acceptance": [
+        "Une requête micro qui échoue explicitement pour cause de portée trop large (au lieu d'une autre erreur) déclenche automatiquement un reopen vers le pipeline complet plutôt que de rester en statut d'échec bloquant",
+        "Le statut/l'historique de la requête micro reflète le re-routage (ex: champ ou log indiquant 'escaladé vers pipeline complet') et un événement micro.updated est émis"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }
