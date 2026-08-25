@@ -24,3 +24,5 @@
 - 2026-08-25T22:42:03.000Z — vérification finale OK
 - 2026-08-25T22:45:24.000Z — T14 terminé (QA visuelle headless (remplace l'extension Chrome) sur test_hardening/feature_check)
 - 2026-08-25T22:45:24.000Z — vérification finale OK
+- 2026-08-25T22:52:11.000Z — T09/T10/T11 terminés (context7, EXA, mémoire mem0/supermemory — intégrations MCP scopées, désactivées par défaut)
+- 2026-08-25T22:52:11.000Z — vérification finale OK — issue #8 (T07-T14) traitée

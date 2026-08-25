@@ -12,19 +12,45 @@ export const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{1,63}$/;
 
 /** Names only — used to tell the UI which secrets are already present. */
 export function readEnvKeys(workspace: string): string[] {
+  return Object.keys(readEnvFile(workspace));
+}
+
+/**
+ * Values for internal, server-side use ONLY (e.g. injecting an integration's API key
+ * into the env of an MCP server we spawn) — never expose this over HTTP, unlike
+ * readEnvKeys. Only the requested names are returned, so a caller can't accidentally
+ * pull in a secret it didn't ask for.
+ */
+export function readEnvValues(workspace: string, names: string[]): Record<string, string> {
+  const all = readEnvFile(workspace);
+  const out: Record<string, string> = {};
+  for (const name of names) if (all[name] !== undefined) out[name] = all[name];
+  return out;
+}
+
+function readEnvFile(workspace: string): Record<string, string> {
   const file = path.join(workspace, '.env');
   let raw: string;
   try {
     raw = fs.readFileSync(file, 'utf8');
   } catch {
-    return [];
+    return {};
   }
-  const keys: string[] = [];
+  const out: Record<string, string> = {};
   for (const line of raw.split('\n')) {
-    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line);
-    if (m) keys.push(m[1]);
+    const m = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (!m) continue;
+    let value = m[2].trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      try {
+        value = value.startsWith('"') ? (JSON.parse(value) as string) : value.slice(1, -1);
+      } catch {
+        /* keep the raw (quoted) value on a malformed line rather than throwing */
+      }
+    }
+    out[m[1]] = value;
   }
-  return [...new Set(keys)];
+  return out;
 }
 
 /**

@@ -1,7 +1,9 @@
 import { DEFAULT_TASK_PHASE, phaseRank, type StackInfo, type StepKey, type TaskDto } from '@pjgen/shared';
 import type { z } from 'zod';
 import type { CoreDeps } from '../core/deps.js';
+import type { SessionSpec } from '../claude/types.js';
 import { executeClaudeRun, newSessionId, type ExecSession } from './stepRunner.js';
+import { context7Mcp, exaMcp } from './integrations.js';
 import { capsFor, resolveModel } from './models.js';
 import { verifyStack, type VerifyKind } from './verify.js';
 import {
@@ -38,6 +40,8 @@ import {
   designBenchmarkPrompt,
   designExcerptBlock,
   DESIGN_NOTE_TOOL,
+  context7Block,
+  exaBlock,
   WORKTREE_RULES,
 } from '../prompts/steps.js';
 import { commonSystemPrompt } from '../prompts/common.js';
@@ -96,6 +100,8 @@ interface GenOpts<T> {
   maxAttempts?: number;
   /** Defaults to 'none'; a named allowlist lets a generation step search the web (design benchmark). */
   tools?: 'none' | string[];
+  /** Optional scoped MCP allowlist (issue #8: context7/EXA) — see pipeline/integrations.ts. */
+  mcpConfig?: SessionSpec['mcpConfig'];
 }
 
 async function runGenerationStep<T>(ctx: StepCtx, o: GenOpts<T>): Promise<StepFlow> {
@@ -120,6 +126,7 @@ async function runGenerationStep<T>(ctx: StepCtx, o: GenOpts<T>): Promise<StepFl
         prompt: o.buildPrompt(lastError),
         tools: o.tools ?? 'none',
         jsonSchema: o.jsonSchema,
+        mcpConfig: o.mcpConfig,
       },
       validate: async (r) => {
         const parsed = extractStructured(o.zodSchema, r.structured, r.resultText);
@@ -277,11 +284,13 @@ export async function stepDesignBenchmark(ctx: StepCtx): Promise<StepFlow> {
   const spec = ws.readFile(ctx.workspace, 'docs/SPEC.md');
   if (!spec) return { status: 'failed', message: 'docs/SPEC.md introuvable' };
 
+  const exa = exaMcp(ctx.deps);
   const flow = await runGenerationStep(ctx, {
     stepKey: 'design_benchmark',
     maxAttempts: 1,
-    tools: ['WebSearch', 'WebFetch'],
-    buildPrompt: () => designBenchmarkPrompt(spec.content),
+    tools: ['WebSearch', 'WebFetch', ...(exa?.tools ?? [])],
+    mcpConfig: exa?.mcpConfig,
+    buildPrompt: () => designBenchmarkPrompt(spec.content) + (exa ? exaBlock : ''),
     jsonSchema: BENCHMARK_JSON_SCHEMA,
     zodSchema: BenchmarkOutputZ,
     apply: async (d) => {
@@ -352,11 +361,15 @@ export async function stepArchitecture(ctx: StepCtx): Promise<StepFlow> {
     const mockup = ws.readFile(ctx.workspace, 'docs/design/mockup.html') ?? ws.readFile(ctx.workspace, 'docs/design/Mockup.jsx') ?? ws.readFile(ctx.workspace, 'docs/design/NOTES.md');
     if (mockup) basePrompt += designExcerptBlock(mockup.content.slice(0, 12_000));
   }
+  const context7 = context7Mcp(ctx.deps);
+  if (context7) basePrompt += context7Block;
   return runGenerationStep(ctx, {
     stepKey: 'architecture',
     buildPrompt: (lastError) => basePrompt + (lastError ? `\n\nATTENTION, tentative précédente invalide: ${lastError}` : ''),
     jsonSchema: ARCH_JSON_SCHEMA,
     zodSchema: ArchOutputZ,
+    tools: context7?.tools,
+    mcpConfig: context7?.mcpConfig,
     semanticCheck: (d) => (d.stack.test_cmd.trim() ? null : 'stack.test_cmd est obligatoire'),
     apply: async (d) => {
       ctx.setStack(d.stack);
@@ -488,16 +501,19 @@ export async function stepTaskBreakdown(ctx: StepCtx): Promise<StepFlow> {
   // Task budget and scope discipline both come from the size tier: a small project that
   // gets 20 tasks is a small project that takes all night.
   const profile = profileFor(repos, repos.projects.byId(ctx.projectId));
+  const context7 = context7Mcp(ctx.deps);
+  const basePrompt =
+    (isRevision
+      ? breakdownRevisionPrompt(spec.content, existingSummary, `T${String(startNum).padStart(2, '0')}`, profile.maxTasksRevision, profile.scopeGuidance)
+      : breakdownPrompt(spec.content, arch.content, profile.minTasks, profile.maxTasks, profile.scopeGuidance)) + (context7 ? context7Block : '');
 
   return runGenerationStep(ctx, {
     stepKey: 'task_breakdown',
-    buildPrompt: (lastError) =>
-      (isRevision
-        ? breakdownRevisionPrompt(spec.content, existingSummary, `T${String(startNum).padStart(2, '0')}`, profile.maxTasksRevision, profile.scopeGuidance)
-        : breakdownPrompt(spec.content, arch.content, profile.minTasks, profile.maxTasks, profile.scopeGuidance)) +
-      (lastError ? `\n\nATTENTION, tentative précédente invalide: ${lastError}` : ''),
+    buildPrompt: (lastError) => basePrompt + (lastError ? `\n\nATTENTION, tentative précédente invalide: ${lastError}` : ''),
     jsonSchema: BREAKDOWN_JSON_SCHEMA,
     zodSchema: BreakdownOutputZ,
+    tools: context7?.tools,
+    mcpConfig: context7?.mcpConfig,
     semanticCheck: (d) => (isRevision ? checkTaskDagAppend(d.tasks, existingKeys) : checkTaskDag(d.tasks)),
     apply: async (d) => {
       if (isRevision) {

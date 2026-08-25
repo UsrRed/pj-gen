@@ -53,6 +53,8 @@ Implémentations : `claude/runner.ts` (`createRealRunner`, spawn `claude` CLI, s
 
 `claude/sessionArgs.ts` `buildArgs(spec, caps): { argv: string[]; mcpConfigPath: string | null }` — `--strict-mcp-config` est TOUJOURS émis ; si `spec.mcpConfig` est fourni, un fichier JSON temporaire (`os.tmpdir()`, `0600`) listant uniquement ces serveurs est écrit et passé via `--mcp-config <path>` (allowlist explicite, jamais un config projet/utilisateur). `runner.ts` supprime ce fichier à la fermeture du process (best-effort).
 
+`pipeline/integrations.ts` (T09/T10/T11, issue #8) : `context7Mcp(deps)`, `exaMcp(deps)`, `memoryMcp(deps)` → `{ mcpConfig, tools: ['mcp__<serveur>__*'] } | null`. `null` tant que `SettingsDto.integrations` n'active pas l'intégration OU que la clé correspondante est absente de `<dataDir>/.env` (lue via `access/envFile.ts` `readEnvValues`, jamais exposée par HTTP). Branché uniquement sur `architecture`/`task_breakdown` (context7), `design_benchmark` (EXA), cadrage (mémoire — un seul provider actif à la fois, jamais mem0 ET supermemory ensemble).
+
 ## Contrat interne : étape de pipeline
 
 ```ts

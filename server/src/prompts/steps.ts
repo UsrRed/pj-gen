@@ -59,6 +59,15 @@ export function designExcerptBlock(excerpt: string): string {
   return `\n\nMaquette de référence fournie (extrait — le fichier complet est dans docs/design/):\n<MAQUETTE>\n${excerpt}\n</MAQUETTE>\nL'architecture doit prévoir sa mise en œuvre fidèle (structure des vues, composants, thème).`;
 }
 
+/** Appended when context7 (issue #8, T09) is enabled — architecture/task_breakdown only. */
+export const context7Block = `\n\nOutil context7 disponible (mcp__context7__*): utilise-le pour vérifier la doc/API/version actuelle d'une bibliothèque avant de fixer un choix technique précis (nom de package, version, signature d'API) — préfère-le à ta mémoire seule pour ces points-là.`;
+
+/** Appended when EXA (issue #8, T10) is enabled — design_benchmark only. */
+export const exaBlock = `\n\nOutil EXA disponible (mcp__exa__*): utilise-le pour la recherche web de ce benchmark plutôt que de t'appuyer uniquement sur ta mémoire.`;
+
+/** Appended when a memory provider (issue #8, T11) is enabled — cadrage only. */
+export const memoryBlock = `\n\nMémoire persistante disponible (outils mcp__*): au début de la conversation, rappelle les préférences déjà connues de l'utilisateur (stack, conventions, choix récurrents) avant de poser des questions redondantes. En fin de cadrage, enregistre les préférences durables qui ressortent de cet échange (pas les détails spécifiques à CE projet) pour les réutiliser sur un futur projet.`;
+
 /** Extra system context for cadrage turns on an improvement iteration. */
 export function revisionCadrageContext(iteration: number, currentSpec: string): string {
   return `CONTEXTE DE RÉVISION: ce projet est DÉJÀ CONSTRUIT (itération ${iteration}). L'utilisateur veut le réviser/améliorer.
