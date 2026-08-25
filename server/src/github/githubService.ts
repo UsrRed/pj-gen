@@ -149,13 +149,52 @@ export class GithubService {
       if (!project.github_repo) throw conflict('Projet non publié sur GitHub');
       if (BUSY_STATUSES.includes(project.status)) throw conflict(`Push impossible en statut « ${project.status} »`);
       if (message?.trim()) await ws.commitAll(project.workspace_path, message.trim());
-      // HEAD instead of a hardcoded branch: imported repos may live on master or another default.
-      await this.git(project.workspace_path, ['push', 'origin', 'HEAD'], 60_000);
+      await this.pushWithRetry(projectId, project.workspace_path);
       const sha = await ws.headSha(project.workspace_path);
       repos.projects.patch(projectId, { github_last_push_sha: sha, github_last_push_at: Date.now() });
       this.emitProject(projectId);
       return repos.projects.byId(projectId)!;
     });
+  }
+
+  /**
+   * True when a `git push` failure is a plain non-fast-forward rejection (remote has commits
+   * we don't). Git reports this as "(non-fast-forward)" when our remote-tracking ref is
+   * already known to be stale, or "(fetch first)" when we never fetched at all — same
+   * underlying cause, same fix (fetch + merge + retry).
+   */
+  private isNonFastForward(err: unknown): boolean {
+    const stderr = (err as { stderr?: string } | undefined)?.stderr ?? '';
+    if (!stderr.includes('[rejected]')) return false;
+    return (
+      stderr.includes('non-fast-forward') ||
+      stderr.includes('fetch first') ||
+      stderr.includes('Updates were rejected because the tip of your current branch is behind')
+    );
+  }
+
+  /**
+   * `git push origin HEAD`; on a non-fast-forward rejection, fetch + merge the
+   * remote branch once and retry. Any other push error, or a merge conflict,
+   * propagates (conflicts as a clean HttpError — no assisted resolution here).
+   */
+  private async pushWithRetry(projectId: string, cwd: string): Promise<void> {
+    try {
+      await this.git(cwd, ['push', 'origin', 'HEAD'], 60_000);
+    } catch (err) {
+      if (!this.isNonFastForward(err)) throw err;
+      const branch = (await this.git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim() || 'main';
+      await this.git(cwd, ['fetch', 'origin'], 30_000);
+      try {
+        await this.git(cwd, ['merge', '--no-edit', `origin/${branch}`], 30_000);
+      } catch {
+        await this.git(cwd, ['merge', '--abort']).catch(() => undefined);
+        const detail = 'Le dépôt distant a des changements en conflit avec le workspace local, résolution manuelle nécessaire.';
+        this.deps.bus.emitTransient('app.log', projectId, { lines: [`[github push] ${detail}`] });
+        throw conflict(detail);
+      }
+      await this.git(cwd, ['push', 'origin', 'HEAD'], 60_000);
+    }
   }
 
   /** ahead/behind vs the current branch's remote counterpart (best-effort: null on fetch failure). */
