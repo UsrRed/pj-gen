@@ -8,6 +8,7 @@
 - `AccessDto` (access.ts) : `{ id, projectId, key, kind: AccessKind, label, required, why, fields: Record<string,string>, secretEnvVars: string[], status: needed|provided|skipped, source: cadrage|user, lastTestAt, lastTestOk, lastTestDetail }`. `ACCESS_KINDS = ssh|domain|database|api_key|smtp|object_storage|other`, champs par type dans `ACCESS_FIELD_SPECS`.
 - `IntegrationsSettings` (types.ts, sur `SettingsDto.integrations`) : `{ context7: boolean; exa: boolean; memoryProvider: 'none'|'mem0'|'supermemory' }` — toutes désactivées par défaut (issue #8). Objet complet requis au PATCH (même contrat que `notifyEvents` : `SettingsRepo.set` remplace tout le blob stocké, un payload partiel écraserait silencieusement les champs non envoyés).
 - `EventPayloads` (events.ts) : 16 types d'événements SSE, dont `project.updated`, `step.started/log/finished`, `task.updated`, `chat.message`, `quota.updated`, `access.updated`, `app.status/log`, `issue.updated`, `micro.updated`, `boot.notice`.
+- `AssetResult` (`github/issueAssets.ts`) : `{ url, file, ok, error?, textExcerpt? }` — `textExcerpt` (T13, « pdfinspector ») est le texte extrait par `github/pdfInspector.ts` (`extractPdfText`, lib `pdf-parse`, borné à 4000 caractères) pour une pièce jointe PDF ; jamais levé en erreur, `undefined`/`null` si non applicable ou illisible. Injecté par `buildIssueRequest` dans le texte transmis au cadrage/SPEC, explicitement marqué non fiable (même statut que le reste du corps de l'issue).
 
 ## API HTTP (Fastify, préfixe `/api`)
 

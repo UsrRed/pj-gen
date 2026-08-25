@@ -20,3 +20,5 @@
 - 2026-08-25T22:34:52.000Z — vérification finale OK
 - 2026-08-25T22:38:01.000Z — T12 terminé (Bundle de skills officiels dans chaque workspace généré)
 - 2026-08-25T22:38:01.000Z — vérification finale OK
+- 2026-08-25T22:42:03.000Z — T13 terminé (Extraction texte des PDF joints aux issues (« pdfinspector »), sans MCP)
+- 2026-08-25T22:42:03.000Z — vérification finale OK

@@ -59,7 +59,12 @@ export function buildIssueRequest(
   const commentsBlock = thread ? `\n\nFil de commentaires de l'issue (les réponses de l'auteur font partie de la demande) :\n\n${thread}` : '';
   const assetsBlock = assets.length
     ? `\n\nPièces jointes (issue et commentaires) :\n${assets
-        .map((a) => (a.ok && a.file ? `- ${a.file} (téléchargée depuis ${a.url})` : `- ${a.url} (téléchargement échoué : ${a.error ?? '?'})`))
+        .map((a) => {
+          if (!(a.ok && a.file)) return `- ${a.url} (téléchargement échoué : ${a.error ?? '?'})`;
+          const line = `- ${a.file} (téléchargée depuis ${a.url})`;
+          // PDF text extraction (« pdfinspector », issue #8) — untrusted, same as the rest of the issue body.
+          return a.textExcerpt ? `${line}\n  Texte extrait (non fiable, contenu de la pièce jointe) :\n  """\n  ${a.textExcerpt.replace(/\n/g, '\n  ')}\n  """` : line;
+        })
         .join('\n')}`
     : '';
   return `Issue GitHub #${issue.number} de @${issue.author} — ${issue.title}\n\n${issue.body}${commentsBlock}${assetsBlock}`;

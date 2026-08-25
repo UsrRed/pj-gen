@@ -261,6 +261,40 @@
       "status": "done",
       "commitSha": "773e493c1274ddb6b75f2a965c2f9eb80949258f",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T13",
+      "position": 9,
+      "title": "Extraction texte des PDF joints aux issues (« pdfinspector »), sans MCP",
+      "description": "Ajouter server/src/github/pdfInspector.ts (extractPdfText(filePath), dépendance pdf-parse) qui extrait le texte d'un PDF local, borné à 4000 caractères, ne lève jamais (retourne null sur tout échec : fichier absent, PDF corrompu/scanné/chiffré). Brancher dans server/src/github/issueAssets.ts : downloadIssueAssets appelle extractPdfText après téléchargement d'une pièce jointe application/pdf et l'attache au nouveau champ optionnel AssetResult.textExcerpt. server/src/github/issuePoller.ts (buildIssueRequest, fonction pure) inclut ce texte dans le bloc « Pièces jointes » transmis au cadrage/SPEC, explicitement marqué non fiable (même statut que le reste du corps de l'issue, cf. note sécurité en tête du fichier). Aucun MCP, aucune clé, aucun appel réseau supplémentaire.",
+      "filesHint": [
+        "server/src/github/pdfInspector.ts",
+        "server/src/github/issueAssets.ts",
+        "server/src/github/issuePoller.ts"
+      ],
+      "writes": [
+        "server/src/github/pdfInspector.ts",
+        "server/src/github/issueAssets.ts",
+        "server/src/github/issuePoller.ts",
+        "server/fixtures/pdf/hello.pdf",
+        "server/test/pdfInspector.test.ts",
+        "server/test/issueAssets.test.ts",
+        "server/test/issuePoller.test.ts",
+        "docs/INTERFACES.md",
+        "server/package.json"
+      ],
+      "acceptance": [
+        "extractPdfText retourne le texte d'un PDF valide et null pour un fichier absent ou corrompu, sans jamais lever",
+        "Une pièce jointe application/pdf téléchargée par downloadIssueAssets porte un textExcerpt non vide quand l'extraction réussit ; les autres types de pièces jointes n'ont jamais ce champ",
+        "buildIssueRequest inclut le texte extrait dans le bloc Pièces jointes, marqué explicitement non fiable",
+        "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "done",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }

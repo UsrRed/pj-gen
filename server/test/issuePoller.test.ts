@@ -85,6 +85,18 @@ describe('buildIssueRequest', () => {
     expect(req).toContain('- /data/issue-assets/p/7/piece-jointe-1.png (téléchargée depuis https://github.com/user-attachments/assets/ok1)');
     expect(req).toContain('- https://github.com/user-attachments/assets/ko2 (téléchargement échoué : HTTP 404)');
   });
+
+  it('inclut le texte extrait d’un PDF joint, marqué non fiable (T13, « pdfinspector »)', () => {
+    const req = buildIssueRequest(
+      ISSUE,
+      [],
+      [{ url: 'https://github.com/user-attachments/files/1/spec.pdf', file: '/data/issue-assets/p/7/piece-jointe-1.pdf', ok: true, textExcerpt: 'Cahier des charges: ...' }],
+      null
+    );
+    expect(req).toContain('- /data/issue-assets/p/7/piece-jointe-1.pdf (téléchargée depuis https://github.com/user-attachments/files/1/spec.pdf)');
+    expect(req).toContain('Texte extrait (non fiable, contenu de la pièce jointe) :');
+    expect(req).toContain('Cahier des charges: ...');
+  });
 });
 
 /** Stub GithubService: everything the poller touches, network-free. */
