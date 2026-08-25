@@ -227,6 +227,40 @@
       "status": "done",
       "commitSha": "b758ac9f61b439dc7e615a636640a2c745cb45dd",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T12",
+      "position": 8,
+      "title": "Bundle de skills officiels dans chaque workspace généré",
+      "description": "Créer server/assets/skills/ avec un jeu curé de skills statiques (security-review, webapp-testing, code-simplify — un dossier par skill avec SKILL.md, frontmatter name/description). Ajouter WorkspaceManager.writeBundledSkills(workspace) (server/src/pipeline/workspace.ts, pattern writeDesignReference) qui copie ce bundle vers .claude/skills/ du workspace et ajoute un marqueur idempotent dans CLAUDE.md listant les skills disponibles. Appeler cette méthode depuis WorkspaceManager.create (nouveau projet) et depuis SpecService.reopen (server/src/cadrage/specService.ts, itération d'amélioration) pour que les projets réouverts profitent aussi d'un bundle à jour. Aucune clé, aucun réseau, actif par défaut : les sessions passent déjà --setting-sources project,local donc les skills sont automatiquement disponibles pour les étapes outillées.",
+      "filesHint": [
+        "server/assets/skills/security-review/SKILL.md",
+        "server/assets/skills/webapp-testing/SKILL.md",
+        "server/assets/skills/code-simplify/SKILL.md",
+        "server/src/pipeline/workspace.ts",
+        "server/src/cadrage/specService.ts"
+      ],
+      "writes": [
+        "server/assets/skills/security-review/SKILL.md",
+        "server/assets/skills/webapp-testing/SKILL.md",
+        "server/assets/skills/code-simplify/SKILL.md",
+        "server/src/pipeline/workspace.ts",
+        "server/src/cadrage/specService.ts",
+        "server/test/bundledSkills.test.ts",
+        "docs/ARCHITECTURE.md"
+      ],
+      "acceptance": [
+        "Un nouveau projet créé (WorkspaceManager.create) a .claude/skills/{security-review,webapp-testing,code-simplify}/SKILL.md dans son workspace",
+        "CLAUDE.md du workspace référence les skills disponibles, sans dupliquer la section à un second appel",
+        "Une réouverture (reopen) rafraîchit le bundle sans casser le test d'itération existant (scaffold toujours sauté, tâches déjà ajoutées inchangées)",
+        "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "done",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }

@@ -18,3 +18,5 @@
 - 2026-08-25T22:28:38.000Z — vérification finale OK
 - 2026-08-25T22:34:52.000Z — T08 terminé (Réglages globaux + secrets opérateur pour les intégrations optionnelles)
 - 2026-08-25T22:34:52.000Z — vérification finale OK
+- 2026-08-25T22:38:01.000Z — T12 terminé (Bundle de skills officiels dans chaque workspace généré)
+- 2026-08-25T22:38:01.000Z — vérification finale OK
