@@ -152,6 +152,33 @@
       "status": "done",
       "commitSha": "7c60761d6df59d4e213d7efe91988969034e735f",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T07",
+      "position": 6,
+      "title": "Gérer l'échec de push git non-fast-forward dans generate-ci/push GitHub",
+      "description": "Dans le service GitHub qui exécute `git push origin HEAD` (utilisé par `POST /api/projects/:id/github/generate-ci` et `POST /api/projects/:id/github/push`), intercepter l'échec spécifique \"non-fast-forward\" (stderr contenant `[rejected]` + `non-fast-forward` ou message \"Updates were rejected because the tip of your current branch is behind\"). Sur cette erreur précise: exécuter `git fetch origin` puis `git merge --no-edit origin/<branche-courante>` (ou pull équivalent) dans le workspace du projet, puis retenter `git push origin HEAD` une seule fois. Si le merge automatique réussit et le push repasse, l'opération se termine normalement (pas d'erreur remontée). Si le merge produit des conflits, ne pas lever la stack trace brute Node: renvoyer une erreur HTTP claire et actionnable (ex: \"Le dépôt distant a des changements en conflit avec le workspace local, résolution manuelle nécessaire\") et journaliser l'échec via le mécanisme d'événements existant (`app.log`/erreur projet). Ne pas implémenter de résolution de conflit assistée par Claude (hors périmètre 30 min) — se limiter au cas fast-forward automatique + message d'erreur propre sinon.",
+      "filesHint": [
+        "server/src/github/",
+        "server/src/http/routes/github.ts",
+        "docs/INTERFACES.md"
+      ],
+      "writes": [
+        "server/src/github/",
+        "server/src/http/routes/github.ts",
+        "docs/INTERFACES.md"
+      ],
+      "acceptance": [
+        "Quand git push échoue avec 'non-fast-forward' et que le merge automatique fetch+merge réussit, l'appel à POST /api/projects/:id/github/generate-ci (ou /push) retourne un succès sans exposer la stack trace brute",
+        "Quand le merge automatique produit un conflit, la réponse HTTP contient un message d'erreur explicite en français destiné à l'utilisateur (pas de stack Node brute), et un événement d'erreur est émis pour le projet",
+        "Les autres erreurs git push (non liées au non-fast-forward) conservent le comportement actuel"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }
