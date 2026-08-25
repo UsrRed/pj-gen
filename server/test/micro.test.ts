@@ -1,9 +1,10 @@
-import { describe, expect, it, afterEach } from 'vitest';
+import { describe, expect, it, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { Container } from '../src/container.js';
-import { seedQueuedProject, testContainer, waitFor } from './helpers.js';
+import { seedQueuedProject, testContainer, waitFor, fastScript } from './helpers.js';
 import { resolveModel } from '../src/pipeline/models.js';
+import { shouldEscalateMicro } from '../src/pipeline/engine.js';
 
 let cRef: Container | null = null;
 afterEach(() => {
@@ -100,6 +101,73 @@ describe('live micro-modifications', () => {
     expect(tasks).toHaveLength(4);
     expect(tasks.every((t) => t.status === 'done')).toBe(true);
     expect(c.repos.micro.list(id)[0].status).toBe('done');
+  });
+});
+
+describe('shouldEscalateMicro (T06 scope decision)', () => {
+  it('final_verify failing always signals scope beyond a micro-modification', () => {
+    expect(shouldEscalateMicro('final_verify', 'Corrige la faute de frappe dans le libellé.')).toBe(true);
+  });
+
+  it('implement_task failing on an ordinary small request is a plain failure, not scope', () => {
+    expect(shouldEscalateMicro('implement_task', 'Corrige la faute de frappe dans le libellé.')).toBe(false);
+  });
+
+  it('implement_task failing on a request already carrying full-scope signals escalates too', () => {
+    expect(shouldEscalateMicro('implement_task', 'Ajoute une nouvelle fonctionnalité de recherche par tags.')).toBe(true);
+  });
+});
+
+describe('micro pipeline failure escalates to the full pipeline (T06)', () => {
+  it('a scope-exceeding micro request that fails is escalated via reopen instead of staying failed', async () => {
+    const script = fastScript((spec) => {
+      if (spec.tools !== 'none' && spec.prompt.includes('Micro-modification simulée')) {
+        return { result: { outcome: 'failure', failure: { kind: 'crash', message: 'boom (simulation)' } } };
+      }
+      return undefined;
+    });
+    const { c } = await testContainer({ script });
+    cRef = c;
+    const id = await seedQueuedProject(c, 'Micro Escalation');
+    c.scheduler.start();
+    await waitFor(() => c.repos.projects.byId(id)!.status === 'awaiting_deploy_approval', 20_000, 'build initial');
+
+    const reopen = vi.spyOn(c.spec, 'reopen').mockResolvedValue(undefined);
+    const request = 'Ajoute une nouvelle fonctionnalité de recherche par tags dans tout le catalogue.';
+    const outcome = await c.micro.create(id, request);
+    expect(outcome.status).toBe('queued');
+
+    await waitFor(() => c.repos.micro.list(id)[0].status === 'escalated', 20_000, 'escalade micro');
+    expect(reopen).toHaveBeenCalledTimes(1);
+    expect(reopen.mock.calls[0][0]).toBe(id);
+    expect(reopen.mock.calls[0][1]).toContain(request);
+
+    const settled = c.repos.micro.list(id)[0];
+    expect(settled.error_message).toContain('escaladé vers le pipeline complet');
+    // The task itself failed — the project was marked `failed` before the escalation kicked in.
+    expect(c.repos.tasks.get(id, settled.task_key!)!.status).toBe('failed');
+  });
+
+  it('an ordinary micro-task failure (no scope signal) stays a plain failure — no reopen', async () => {
+    const script = fastScript((spec) => {
+      if (spec.tools !== 'none' && spec.prompt.includes('Micro-modification simulée')) {
+        return { result: { outcome: 'failure', failure: { kind: 'crash', message: 'boom (simulation)' } } };
+      }
+      return undefined;
+    });
+    const { c } = await testContainer({ script });
+    cRef = c;
+    const id = await seedQueuedProject(c, 'Micro Plain Failure');
+    c.scheduler.start();
+    await waitFor(() => c.repos.projects.byId(id)!.status === 'awaiting_deploy_approval', 20_000, 'build initial');
+
+    const reopen = vi.spyOn(c.spec, 'reopen').mockResolvedValue(undefined);
+    const outcome = await c.micro.create(id, 'Corrige le libellé du bouton principal.');
+    expect(outcome.status).toBe('queued');
+
+    await waitFor(() => c.repos.projects.byId(id)!.status === 'failed', 20_000, 'échec micro');
+    expect(c.repos.micro.list(id)[0].status).toBe('failed');
+    expect(reopen).not.toHaveBeenCalled();
   });
 });
 

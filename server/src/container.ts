@@ -79,6 +79,7 @@ export async function buildContainer(config: Config, overrides: ContainerOverrid
   scheduler = new Scheduler(deps, engine, pool);
   const chat = new ChatService(deps);
   const spec = new SpecService(deps, chat);
+  engine.attachSpec(spec);
   const deploy = new DeployService(deps, chat);
   const micro = new MicroService(deps);
   const github = new GithubService(deps);

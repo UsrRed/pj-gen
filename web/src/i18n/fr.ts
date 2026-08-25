@@ -252,6 +252,7 @@ export const T = {
     done: 'terminée',
     failed: 'échec',
     needs_clarification: 'à préciser',
+    escalated: 'itération complète en cours',
   } as Record<string, string>,
   designSection: '🎨 Maquette (optionnel)',
   designHint:

@@ -115,7 +115,7 @@ export interface CadrageStructured {
   size_rationale?: string;
 }
 
-export type MicroRequestStatus = 'pending' | 'task_created' | 'done' | 'failed' | 'needs_clarification';
+export type MicroRequestStatus = 'pending' | 'task_created' | 'done' | 'failed' | 'needs_clarification' | 'escalated';
 
 /** A live micro-modification: a small change request turned into a single task, no full pipeline. */
 export interface MicroRequestDto {

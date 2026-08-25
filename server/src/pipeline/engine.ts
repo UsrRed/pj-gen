@@ -1,7 +1,9 @@
 import { MICRO_PIPELINE_ORDER, PIPELINE_ORDER, type StackInfo, type StepKey } from '@pjgen/shared';
 import type { CoreDeps } from '../core/deps.js';
 import { ProjectStateMachine } from '../core/stateMachine.js';
-import { toMicroDto } from '../db/repos/index.js';
+import { toMicroDto, type MicroRequestRow } from '../db/repos/index.js';
+import { classifyIssueScope } from '../github/issuePoller.js';
+import type { SpecService } from '../cadrage/specService.js';
 import { profileFor } from './sizing.js';
 import {
   stepDesignBenchmark,
@@ -21,7 +23,17 @@ import {
   type StepFlow,
 } from './steps.js';
 
-export type EngineOutcome = 'completed' | 'parked' | 'paused_user' | 'canceled' | 'failed' | 'preempted';
+export type EngineOutcome = 'completed' | 'parked' | 'paused_user' | 'canceled' | 'failed' | 'preempted' | 'escalated';
+
+/**
+ * A micro pipeline failure exceeds a micro-modification's scope (one small, single-purpose
+ * task) either because `final_verify` itself failed — the change reached beyond what one task
+ * could land — or because the original request already carried full-scope signals (T05's
+ * `classifyIssueScope`, reused here for pipeline-detected scope instead of issue-text routing).
+ */
+export function shouldEscalateMicro(stepKey: StepKey, request: string): boolean {
+  return stepKey === 'final_verify' || classifyIssueScope(request) === 'full';
+}
 
 const STEP_FNS: Record<Exclude<StepKey, 'deploy' | 'micro'>, (ctx: StepCtx) => Promise<StepFlow>> = {
   design_benchmark: stepDesignBenchmark,
@@ -40,9 +52,15 @@ const STEP_FNS: Record<Exclude<StepKey, 'deploy' | 'micro'>, (ctx: StepCtx) => P
 
 export class Engine {
   private sm: ProjectStateMachine;
+  private spec: SpecService | null = null;
 
   constructor(private deps: CoreDeps) {
     this.sm = new ProjectStateMachine(deps.repos.projects);
+  }
+
+  /** Late-bound: SpecService is built after Engine in the container (same cycle as Scheduler). */
+  attachSpec(spec: SpecService): void {
+    this.spec = spec;
   }
 
   private emitProject(projectId: string): void {
@@ -116,7 +134,8 @@ export class Engine {
       }
       if (flow.status === 'halted') return this.finishHalted(projectId, flow.mode);
       this.sm.tryTransition(projectId, ['building'], 'failed', { error_message: `${stepKey}: ${flow.message}` });
-      this.settleMicroRequests(projectId);
+      const settled = this.settleMicroRequests(projectId);
+      if (isMicro && (await this.tryEscalateMicro(projectId, stepKey, settled))) return 'escalated';
       this.emitProject(projectId);
       return 'failed';
     }
@@ -152,6 +171,34 @@ export class Engine {
     const settled = this.deps.repos.micro.settleForProject(projectId);
     for (const r of settled) this.deps.bus.emit('micro.updated', projectId, { request: toMicroDto(r) });
     return settled;
+  }
+
+  /**
+   * A micro request that just settled as failed for a scope reason is not a dead end: reopen
+   * the project for a full cadrage → SPEC → build iteration (same `reopen` T05 uses to route
+   * large-scope GitHub issues) instead of leaving it stuck in `failed`. Returns whether an
+   * escalation happened (the caller must not also report the run as a plain failure).
+   */
+  private async tryEscalateMicro(projectId: string, stepKey: StepKey, settled: MicroRequestRow[]): Promise<boolean> {
+    if (!this.spec) return false;
+    const oversized = settled.filter((r) => r.status === 'failed' && shouldEscalateMicro(stepKey, r.request));
+    if (!oversized.length) return false;
+
+    for (const r of oversized) {
+      const patched = this.deps.repos.micro.patch(r.id, {
+        status: 'escalated',
+        error_message: `escaladé vers le pipeline complet (${stepKey}: portée dépassant une micro-modification)`,
+      });
+      this.deps.bus.emit('micro.updated', projectId, { request: toMicroDto(patched) });
+    }
+    const combinedRequest = oversized.map((r) => r.request).join('\n\n---\n\n');
+    try {
+      await this.spec.reopen(projectId, combinedRequest);
+      return true;
+    } catch (err) {
+      console.error(`[engine] escalation reopen failed for project ${projectId}:`, err);
+      return false;
+    }
   }
 
   /** On cancel, drop every worktree; on pause, keep them so the resume reattaches. */
