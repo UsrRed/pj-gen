@@ -225,7 +225,7 @@
       "after": ["T07"],
       "phase": "foundation",
       "status": "done",
-      "commitSha": null,
+      "commitSha": "b758ac9f61b439dc7e615a636640a2c745cb45dd",
       "worktreeDir": null
     }
   ]
