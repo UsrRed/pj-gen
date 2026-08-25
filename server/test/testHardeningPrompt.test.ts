@@ -34,4 +34,10 @@ describe('testHardeningPrompt', () => {
     const prompt = testHardeningPrompt(stack);
     expect(prompt).toContain('« npm test »');
   });
+
+  it('instruit une capture d\'écran headless (T14, remplace l\'extension Chrome) vers docs/qa/screenshots/', () => {
+    const prompt = testHardeningPrompt(stack);
+    expect(prompt).toMatch(/docs\/qa\/screenshots\//);
+    expect(prompt).toMatch(/screenshot/i);
+  });
 });

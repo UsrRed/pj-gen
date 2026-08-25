@@ -369,6 +369,7 @@ export function testHardeningPrompt(stack: StackInfo): string {
 - Lis docs/SPEC.md pour identifier les cas limites importants (entrées invalides, bords, erreurs).
 - Ajoute des tests de cas limites pour la logique cœur uniquement (pas d'UI, pas de redondance).
 - Si le projet comporte une interface web front-end (déductible de docs/SPEC.md et docs/ARCHITECTURE.md): écris et exécute des tests end-to-end avec un outil de simulation de navigateur (ex. Playwright) qui reproduisent de vrais clics/saisies utilisateur, et vérifient au minimum (1) qu'une saisie invalide déclenche un message d'erreur clair et exploitable côté UI, et (2) que le parcours nominal (happy path) principal s'exécute de bout en bout sans erreur console/réseau ni blocage d'UI.
+  - QA visuelle (headless, sans extension/navigateur interactif) : dans ces mêmes tests Playwright, capture une screenshot après le happy path et une après le cas d'erreur, enregistrées sous docs/qa/screenshots/ (ex. happy-path.png, error-state.png). C'est la trace visuelle exploitée ensuite par l'audit de conformité — pas un rendu que tu regardes toi-même.
 - Garde la suite rapide (< 60 s). Si un test légitime échoue, corrige le code.
 - « ${stack.test_cmd} » doit passer. Termine par un commit \`test: harden edge cases\`.`;
 }
@@ -405,9 +406,10 @@ Lis docs/SPEC.md (fonctionnalités F1..Fn, éléments différenciants, critères
 - Pour les exigences visuelles/UX: exige un rendu réel (DOM, canvas, sortie) — un catalogue de données, un «resolver» ou un attribut posé sur une div ne sont PAS un rendu.
 - Vérifie que les dépendances clés déclarées dans docs/ARCHITECTURE.md sont réellement utilisées.
 - Lance l'app ou les tests si nécessaire pour constater.
+- Si docs/qa/screenshots/ existe (produit par test_hardening): pour une fonctionnalité visuelle/UX, ouvre les captures pertinentes comme preuve du rendu réel et liste leurs chemins dans screenshots.
 
 Statuts: ok (réellement câblée et conforme), partial (présente mais incomplète/dégradée), missing (absente ou non câblée). Sois SÉVÈRE: dans le doute, partial.
-Pour chaque entrée: evidence = fichiers/éléments précis constatés; fix_hint = quoi faire concrètement ("" si ok).`;
+Pour chaque entrée: evidence = fichiers/éléments précis constatés; fix_hint = quoi faire concrètement ("" si ok); screenshots = chemins docs/qa/screenshots/... utilisés comme preuve visuelle (liste vide si aucune ou non applicable).`;
 }
 
 export interface FeatureGap {

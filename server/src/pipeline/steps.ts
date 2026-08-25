@@ -869,9 +869,11 @@ export async function stepFeatureCheck(ctx: StepCtx): Promise<StepFlow> {
     const md = [
       `# Audit de conformité — passe ${round + 1}`,
       '',
-      '| Fonctionnalité | Statut | Constat |',
-      '|---|---|---|',
-      ...verdict.features.map((f) => `| ${f.key} — ${f.title} | ${f.status} | ${f.evidence.replace(/\n/g, ' ').slice(0, 200)} |`),
+      '| Fonctionnalité | Statut | Constat | Captures |',
+      '|---|---|---|---|',
+      ...verdict.features.map(
+        (f) => `| ${f.key} — ${f.title} | ${f.status} | ${f.evidence.replace(/\n/g, ' ').slice(0, 200)} | ${f.screenshots?.join(', ') || '—'} |`
+      ),
       '',
     ].join('\n');
     ws.writeFile(ctx.workspace, 'docs/FEATURE_AUDIT.md', md);

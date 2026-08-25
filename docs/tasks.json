@@ -295,6 +295,40 @@
       "status": "done",
       "commitSha": "767faa3c9fdba52000fd9a116dee9b9c90ac1a86",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T14",
+      "position": 10,
+      "title": "QA visuelle headless (remplace l'extension Chrome) sur test_hardening/feature_check",
+      "description": "L'extension claude-in-chrome (MCP navigateur interactif) est incompatible avec des sessions claude -p spawnées sans surveillance humaine sur un serveur headless. Réinterprétation retenue avec @UsrRed : étendre le Playwright déjà utilisé en test_hardening (T03) pour capturer des screenshots (happy path + cas d'erreur) sous docs/qa/screenshots/ (server/src/prompts/steps.ts, testHardeningPrompt). Étendre FeatureAuditItemZ/FEATURE_AUDIT_JSON_SCHEMA (server/src/prompts/schemas.ts) d'un champ optionnel screenshots: string[] ; featureAuditPrompt instruit l'audit à utiliser ces captures comme preuve visuelle pour les fonctionnalités UI et à les lister. docs/FEATURE_AUDIT.md (server/src/pipeline/steps.ts, stepFeatureCheck) gagne une colonne Captures. docs/SPEC.md documente explicitement pourquoi claude-in-chrome n'est pas utilisé tel quel.",
+      "filesHint": [
+        "server/src/prompts/steps.ts",
+        "server/src/prompts/schemas.ts",
+        "server/src/pipeline/steps.ts",
+        "docs/SPEC.md"
+      ],
+      "writes": [
+        "server/src/prompts/steps.ts",
+        "server/src/prompts/schemas.ts",
+        "server/src/pipeline/steps.ts",
+        "server/test/testHardeningPrompt.test.ts",
+        "server/test/visualQa.test.ts",
+        "docs/SPEC.md"
+      ],
+      "acceptance": [
+        "testHardeningPrompt instruit explicitement la capture de screenshots headless (happy path + erreur) sous docs/qa/screenshots/",
+        "FeatureAuditZ accepte un champ screenshots optionnel par fonctionnalité sans le rendre obligatoire (rétro-compatible avec un audit qui ne le fournit pas)",
+        "featureAuditPrompt mentionne explicitement d'utiliser docs/qa/screenshots/ comme preuve visuelle",
+        "docs/FEATURE_AUDIT.md liste les captures par fonctionnalité",
+        "docs/SPEC.md explique pourquoi claude-in-chrome n'est pas utilisé dans le pipeline headless",
+        "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "done",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }

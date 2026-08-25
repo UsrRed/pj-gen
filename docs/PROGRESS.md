@@ -22,3 +22,5 @@
 - 2026-08-25T22:38:01.000Z — vérification finale OK
 - 2026-08-25T22:42:03.000Z — T13 terminé (Extraction texte des PDF joints aux issues (« pdfinspector »), sans MCP)
 - 2026-08-25T22:42:03.000Z — vérification finale OK
+- 2026-08-25T22:45:24.000Z — T14 terminé (QA visuelle headless (remplace l'extension Chrome) sur test_hardening/feature_check)
+- 2026-08-25T22:45:24.000Z — vérification finale OK

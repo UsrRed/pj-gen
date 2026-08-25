@@ -101,6 +101,7 @@ pj-gen pilote le CLI **Claude Code** en mode headless (`claude -p`), via l'**abo
 - Le CLI n'a plus `--max-turns` : le superviseur compte les tours du flux NDJSON et coupe lui-même (`maxTurns`/`timeoutMs`).
 - Génération / mutation de fichiers workspace strictement confinée sous `workspaceRoot` (`assertInside`, jail anti-traversal testé).
 - Caches de dépendances mutualisés entre workspaces (npm/pnpm/yarn/pip/uv/go/cargo), `CI=1` posé systématiquement.
+- Pas d'extension Chrome/navigateur interactif (`claude-in-chrome`) dans le pipeline : les sessions `claude -p` sont spawnées sans surveillance humaine sur un serveur potentiellement headless — un MCP qui pilote un navigateur attendu par un humain n'a pas de sens ici. La QA visuelle (issue #8, T14) passe par Playwright headless (déjà utilisé en `test_hardening`, T03) qui capture des screenshots sous `docs/qa/screenshots/`, exploitées ensuite comme preuve par l'audit `feature_check`.
 
 ## Hors périmètre
 
@@ -110,6 +111,7 @@ pj-gen pilote le CLI **Claude Code** en mode headless (`claude -p`), via l'**abo
 - Pas d'exécution multi-instance / multi-hôte de l'orchestrateur (lockfile mono-process).
 
 ## Micro-révisions
+- T14 (2026-08-25): Issue GitHub #8 de @UsrRed — Ajout optimisation. QA visuelle headless (remplace l'extension claude-in-chrome, incompatible avec le pipeline sans surveillance humaine) : Playwright capture des screenshots sous docs/qa/screenshots/, exploitées par l'audit feature_check (champ screenshots ajouté à FeatureAuditItemZ, optionnel).
 - T13 (2026-08-25): Issue GitHub #8 de @UsrRed — Ajout optimisation. Extraction texte des PDF joints aux issues GitHub (« pdfinspector », lib pdf-parse, pas de MCP ni de clé) injectée dans le texte transmis au cadrage/SPEC, marquée explicitement non fiable comme le reste du corps de l'issue.
 - T12 (2026-08-25): Issue GitHub #8 de @UsrRed — Ajout optimisation. Bundle de skills officiels (security-review, webapp-testing, code-simplify) copié dans .claude/skills/ de chaque workspace généré (création et réouverture) — aucune clé, actif par défaut, chargé automatiquement via --setting-sources project,local déjà en place.
 - T08 (2026-08-25): Issue GitHub #8 de @UsrRed — Ajout optimisation. Réglages globaux SettingsDto.integrations (context7/EXA/mémoire), tous désactivés par défaut, activation + clé API via le panneau Settings ; clé écrite dans <dataDir>/.env global (0600), jamais renvoyée ni stockée en base — aucune création de compte automatique.

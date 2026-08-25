@@ -312,6 +312,8 @@ export const FeatureAuditItemZ = z.object({
   status: z.enum(['ok', 'partial', 'missing']),
   evidence: z.string(),
   fix_hint: z.string(),
+  /** docs/qa/screenshots/... paths used as visual evidence (T14, headless QA — issue #8). Absent/empty = not applicable. */
+  screenshots: z.array(z.string()).optional(),
 });
 export const FeatureAuditZ = z.object({
   features: z.array(FeatureAuditItemZ).min(1),
@@ -331,6 +333,11 @@ export const FEATURE_AUDIT_JSON_SCHEMA = {
           status: { type: 'string', enum: ['ok', 'partial', 'missing'], description: 'ok = réellement câblée de bout en bout' },
           evidence: { type: 'string', description: 'Fichiers/éléments précis constatés' },
           fix_hint: { type: 'string', description: 'Quoi faire concrètement ("" si ok)' },
+          screenshots: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Chemins docs/qa/screenshots/... utilisés comme preuve visuelle ([] si aucune ou non applicable)',
+          },
         },
         required: ['key', 'title', 'status', 'evidence', 'fix_hint'],
         additionalProperties: false,
