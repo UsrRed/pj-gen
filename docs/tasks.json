@@ -394,6 +394,30 @@
       "status": "done",
       "commitSha": "e6411f7e4db9f0e424dd0197273b920581640395",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T16",
+      "position": 15,
+      "title": "Polish visuel : décor et transitions fluides sur les cartes/panneaux de l'UI web",
+      "description": "Étendre le durcissement visuel déjà fait sur les boutons (T12) au reste de l'interface web : ajouter un léger fond décoratif (dégradé subtil / formes discrètes) sur la page principale, et appliquer des transitions fluides (transform/box-shadow, ~150-200ms ease) aux cartes de projet et panneaux au survol/focus, en cohérence avec le thème existant. Ne pas changer la structure des composants ni les routes/appels API — uniquement du CSS/styles (localiser les fichiers de style du client via docs/ARCHITECTURE.md, ex. styles globaux et composants carte/panneau du dashboard).",
+      "filesHint": [
+        "docs/ARCHITECTURE.md"
+      ],
+      "writes": [
+        "docs/ARCHITECTURE.md"
+      ],
+      "acceptance": [
+        "Les cartes de projet et panneaux principaux du dashboard ont une transition visuelle fluide au survol/focus (ombre/légère élévation), cohérente avec l'animation des boutons existante",
+        "La page principale affiche un fond légèrement décoré (dégradé ou forme discrète) sans nuire à la lisibilité du texte",
+        "Aucune régression fonctionnelle : navigation, clics et appels API du dashboard continuent de fonctionner normalement",
+        "Le build front (lint/typecheck/build) passe sans erreur"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }
