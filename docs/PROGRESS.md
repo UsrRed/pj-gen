@@ -26,3 +26,4 @@
 - 2026-08-27T06:35:00.000Z — T11 terminé (filtre de sécurité isolé avant tout routage auto d'une issue GitHub : session `tools:none` sur titre+corps seuls, nouveau schéma `IssueSecurityVerdictZ`, nouvelle décision `blocked_security` avec commentaire explicatif ; `docs/INTERFACES.md` mis à jour)
 - 2026-08-27T06:35:20.000Z — vérification finale OK — prêt à déployer
 - 2026-08-27T04:34:06.279Z — T11 terminé (Filtre de securite isole avant traitement auto des issues GitHub)
+- 2026-08-27T04:34:29.496Z — vérification finale OK — prêt à déployer
