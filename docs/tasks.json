@@ -179,6 +179,34 @@
       "status": "done",
       "commitSha": "b3f3a08e75504c73e8b15c2201b865a9baeaa415",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T08",
+      "position": 7,
+      "title": "generate-ci: programmer la génération si aucun token GitHub n'est disponible",
+      "description": "Actuellement, POST /projects/:id/github/generate-ci échoue si aucun token GitHub n'est configuré/lié pour le projet. Modifier ce handler (server/src/http/routes/github.ts) et le service GitHub associé (GithubService) pour que, en l'absence de token, la demande de génération de CI soit persistée comme en attente au lieu d'échouer (ex. flag sur le projet ou entrée dédiée), et que la réponse indique un statut 'queued' plutôt qu'une erreur. Réutiliser le flux existant déclenché après liaison GitHub (POST /github/link) ou l'auto-mode (PATCH /projects/:id/github/auto-mode) pour déclencher automatiquement la génération du CI en attente dès qu'un token devient disponible pour ce projet, sans nouvel appel manuel à generate-ci. Émettre l'événement approprié pour informer le client du changement de statut.",
+      "filesHint": [
+        "server/src/http/routes/github.ts",
+        "server/src/github/GithubService.ts",
+        "docs/INTERFACES.md"
+      ],
+      "writes": [
+        "server/src/http/routes/github.ts",
+        "server/src/github/GithubService.ts",
+        "docs/INTERFACES.md"
+      ],
+      "acceptance": [
+        "Appeler POST /projects/:id/github/generate-ci sur un projet sans token GitHub configuré renvoie un succès avec statut 'queued' (pas d'erreur 4xx), et la demande est persistée",
+        "Une fois un token/lien GitHub configuré pour ce projet, la génération de CI se déclenche automatiquement (sans nouvel appel à generate-ci) et le fichier CI apparaît dans le workspace",
+        "Un test couvre le scénario: appel sans token -> réponse queued -> liaison du token -> génération effective du CI",
+        "Si le format de réponse de generate-ci change, docs/INTERFACES.md est mis à jour en conséquence"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }

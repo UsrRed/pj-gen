@@ -110,6 +110,7 @@ pj-gen pilote le CLI **Claude Code** en mode headless (`claude -p`), via l'**abo
 - Pas d'exécution multi-instance / multi-hôte de l'orchestrateur (lockfile mono-process).
 
 ## Micro-révisions
+- T08 (2026-08-27): Issue GitHub #11 de @UsrRed — generation CI La generation de CI doit fonctionner en ajoutant simplement la task, ainsi même sans token la tasks sera programmé pour plus tard
 - T07 (2026-08-25): Issue GitHub #10 de @UsrRed — fix [pj-gen] erreur route POST /api/projects/ee2c18b4-7020-4527-8a93-f6e4c46e94e6/github/generate-ci Error: Command failed: git push origin HEAD To github.com:UsrRed/immo-paper.git ! [rejected] HEAD -> main (non-fast-forward) error: failed to push some refs to 'github.c
 - T06 (2026-08-25): Issue GitHub #9 de @UsrRed — Tache git non bloqué Ne bloque pas une requete car elle ne passe pas en micro modification, je veux que ca puisse etre gerer au dela d'une micro modification, au depart tu determine la taille et ensuite tu t'y applique, si ça bloque pour cette raison alors recycle avec u
 - T05 (2026-08-24): Issue GitHub #7 de @UsrRed — github auto Le mode auto de github doit pouvoir lancer des modification plsu grosse que juste des micro-modifications Biensur si c'est une plus grosse alors on repasse dans la pipeline pour bien mettre a jour la doc, faire des tests etc.. 
