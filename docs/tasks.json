@@ -369,6 +369,31 @@
       "status": "done",
       "commitSha": "f3467e389f7961ba71e710f4ba47eff69869bcb4",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T15",
+      "position": 14,
+      "title": "Clarifier les critères du filtre de sécurité des issues GitHub (T11)",
+      "description": "Affiner le prompt isolé du filtre de sécurité des issues (issueSecurityPrompt) utilisé par IssuePoller.checkIssueSecurity pour préciser explicitement ce qui doit être jugé malicious=true : uniquement les demandes visant à nuire à pj-gen lui-même, à la machine/hôte de build, à introduire une backdoor, exfiltrer des secrets/identifiants, ou saboter le pipeline de build/déploiement. Préciser explicitement que des demandes de fonctionnalités légitimes pour l'application générée (même inhabituelles, agressives en scope, ou touchant à la sécurité applicative comme auth/permissions/scans) ne doivent PAS être marquées comme malveillantes tant qu'elles ne ciblent pas le pc de build ou pj-gen lui-même. Ne pas modifier le schéma IssueSecurityVerdictZ/ISSUE_SECURITY_JSON_SCHEMA (contrat inchangé), seulement le texte d'instruction envoyé au modèle.",
+      "filesHint": [
+        "server/src/prompts/steps.ts",
+        "server/src/github/issuePoller.ts"
+      ],
+      "writes": [
+        "server/src/prompts/steps.ts",
+        "server/src/github/issuePoller.ts"
+      ],
+      "acceptance": [
+        "Le texte du prompt issueSecurityPrompt énumère explicitement les critères de malveillance (nuire à pj-gen, à la machine de build, backdoor, exfiltration de secrets, sabotage du pipeline) et précise que les demandes de fonctionnalités légitimes pour le projet généré ne sont pas malveillantes même si inhabituelles",
+        "Les tests existants couvrant checkIssueSecurity/le filtre de sécurité passent toujours après la modification",
+        "Aucun changement du schéma zod ni du JSON schema exposé au modèle (contrat IssueSecurityVerdictZ inchangé)"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }
