@@ -258,6 +258,35 @@
       "status": "done",
       "commitSha": "f2ffd22b83f7546acdd7a749b07ea76fcf5d1470",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T11",
+      "position": 10,
+      "title": "Filtre de securite isole avant traitement auto des issues GitHub",
+      "description": "Avant tout routage automatique d'une issue GitHub (micro ou reopen) en mode github-auto, inserer une session Claude isolee dediee (tools: none, contexte minimal = titre + corps de l'issue uniquement, pas d'historique projet) qui evalue si l'objectif de l'issue est de nuire a pj-gen ou a la machine de build (ex: executer du code destructeur, exfiltrer des secrets, introduire une backdoor, desactiver des verifications de securite). Sortie structuree validee par un nouveau schema zod (ex. IssueSecurityVerdictZ dans server/src/prompts/schemas.ts) du type { malicious: boolean, reason: string }. Le filtre doit etre permissif pour toute demande d'implementation produit legitime, meme inhabituelle ou agressive fonctionnellement - seul un objectif de nuisance a l'infrastructure/l'outil est bloquant. Si verdict malveillant: l'issue n'est pas implementee (ni micro ni reopen), elle est marquee avec un statut/label distinct et un commentaire explicatif est poste sur l'issue (reutiliser le mecanisme de commentaire auto de T04). Si verdict benin: le traitement auto suit le flux existant (T05/T06/T09) sans changement. Si un nouveau champ est ajoute au DTO issue ou a la table issues, mettre a jour docs/INTERFACES.md et docs/PROGRESS.md dans le meme commit.",
+      "filesHint": [
+        "server/src/github/",
+        "server/src/prompts/schemas.ts",
+        "server/src/prompts/steps.ts",
+        "docs/INTERFACES.md"
+      ],
+      "writes": [
+        "server/src/github/",
+        "server/src/prompts/schemas.ts",
+        "server/src/prompts/steps.ts",
+        "docs/INTERFACES.md"
+      ],
+      "acceptance": [
+        "Une issue de test dont le corps demande explicitement d'introduire une backdoor ou d'endommager la machine de build est detectee par la session isolee, n'est pas implementee, et recoit un commentaire explicatif plus un statut/label dedie.",
+        "Une issue de test demandant une fonctionnalite produit legitime (meme inhabituelle) passe le filtre et suit normalement le pipeline micro/reopen existant.",
+        "Test automatise couvrant au moins ces deux cas (malveillant bloque / legitime accepte)."
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }
