@@ -35,6 +35,14 @@ describe('sortIssuesByPriority', () => {
     expect(sorted.map((i) => i.id)).toEqual([5, 3, 4, 2, 6, 1]);
   });
 
+  it('ranks fixing/ci_running before pending, and pending before fixed', () => {
+    const issues = [issue(1, 'fixed', 100), issue(2, 'pending', 200), issue(3, 'ci_running', 300), issue(4, 'fixing', 400)];
+
+    const sorted = sortIssuesByPriority(issues);
+
+    expect(sorted.map((i) => i.id)).toEqual([4, 3, 2, 1]);
+  });
+
   it('does not mutate the input array', () => {
     const issues = [issue(1, 'queued', 1), issue(2, 'fixing', 2)];
     const copy = [...issues];

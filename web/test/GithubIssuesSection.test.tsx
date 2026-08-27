@@ -23,7 +23,7 @@ function issue(id: number, decision: IssueDecision, updatedAt: number): IssueDto
 
 const issues = [
   issue(1, 'fixed', 500),
-  issue(2, 'queued', 100),
+  issue(2, 'pending', 100),
   issue(3, 'ci_running', 200),
   issue(4, 'queued', 300),
   issue(5, 'fixing', 400),
