@@ -6,11 +6,20 @@
 
 body {
   @apply bg-zinc-950 text-zinc-100 antialiased;
+  background-image:
+    radial-gradient(ellipse 70% 50% at 15% -10%, rgba(99, 102, 241, 0.14), transparent 60%),
+    radial-gradient(ellipse 55% 40% at 100% 0%, rgba(16, 185, 129, 0.08), transparent 60%);
+  background-repeat: no-repeat;
+  background-attachment: fixed;
 }
 
 @layer components {
   .card {
-    @apply rounded-xl border border-zinc-800 bg-zinc-900/60;
+    @apply rounded-xl border border-zinc-800 bg-zinc-900/60 transition-shadow duration-200 ease-out;
+  }
+
+  .card-hover {
+    @apply transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-zinc-700 hover:shadow-lg hover:shadow-black/20 focus-visible:-translate-y-0.5 focus-visible:border-zinc-700 focus-visible:shadow-lg focus-visible:shadow-black/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400;
   }
 
   .btn-primary {

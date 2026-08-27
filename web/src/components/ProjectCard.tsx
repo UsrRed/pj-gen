@@ -7,7 +7,7 @@ import { fmtTokens, tokensTitle } from '../lib/format.js';
 export function ProjectCard({ p, compact }: { p: ProjectSummary; compact?: boolean }) {
   const progress = p.tasksTotal > 0 ? Math.round((p.tasksDone / p.tasksTotal) * 100) : 0;
   return (
-    <Link to={`/projects/${p.id}`} className="card block p-4 transition-colors hover:border-zinc-600">
+    <Link to={`/projects/${p.id}`} className="card card-hover block p-4">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate font-semibold text-zinc-100">{p.title}</div>
