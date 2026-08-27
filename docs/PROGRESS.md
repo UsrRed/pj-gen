@@ -17,3 +17,4 @@
 - 2026-08-25T23:17:35.206Z — T07 terminé (Gérer l'échec de push git non-fast-forward dans generate-ci/push GitHub)
 - 2026-08-25T23:17:55.210Z — vérification finale OK — prêt à déployer
 - 2026-08-27T00:47:18.138Z — T08 terminé (generate-ci: programmer la génération si aucun token GitHub n'est disponible)
+- 2026-08-27T00:47:38.324Z — vérification finale OK — prêt à déployer
