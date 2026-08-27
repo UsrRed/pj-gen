@@ -270,6 +270,12 @@ const MIGRATIONS: string[] = [
   ALTER TABLE tasks ADD COLUMN after_keys TEXT NOT NULL DEFAULT '[]';
   ALTER TABLE tasks ADD COLUMN phase TEXT NOT NULL DEFAULT 'core';
   `,
+  // v13 — CI generation requested before the project is linked to GitHub is queued
+  // instead of failing, and fires automatically once linkProject/setAutoMode make
+  // a repo available.
+  `
+  ALTER TABLE projects ADD COLUMN github_ci_pending INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export function migrate(db: DB): void {

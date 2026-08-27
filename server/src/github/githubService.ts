@@ -137,6 +137,9 @@ export class GithubService {
       });
       this.emitProject(projectId);
       return repos.projects.byId(projectId)!;
+    }).then((row) => {
+      this.triggerPendingCi(projectId);
+      return row;
     });
   }
 
@@ -219,11 +222,45 @@ export class GithubService {
     if (enabled && project.github_private !== 1) throw badRequest('Le mode auto est réservé aux dépôts privés');
     repos.projects.patch(projectId, { github_auto_mode: enabled ? 1 : 0 });
     this.emitProject(projectId);
+    this.triggerPendingCi(projectId);
     return repos.projects.byId(projectId)!;
   }
 
+  /**
+   * Request .github/workflows/ci.yml. Without a linked repo there is nothing to push to yet:
+   * the request is persisted (`github_ci_pending`) and returned as 'queued' instead of failing —
+   * `triggerPendingCi` fires it automatically once linkProject/setAutoMode make a repo available.
+   */
+  async generateCi(projectId: string): Promise<{ status: 'queued' | 'generated' }> {
+    const { repos } = this.deps;
+    const project = repos.projects.byId(projectId);
+    if (!project) throw badRequest('Projet introuvable');
+    if (!project.github_repo) {
+      if (project.github_ci_pending !== 1) {
+        repos.projects.patch(projectId, { github_ci_pending: 1 });
+        this.emitProject(projectId);
+      }
+      return { status: 'queued' };
+    }
+    await this.runCiGeneration(projectId);
+    return { status: 'generated' };
+  }
+
+  /** Fires a queued generate-ci request once a repo is available. Best-effort: a failure is
+   *  logged, not surfaced — the project stays usable and a manual generate-ci call can retry. */
+  private triggerPendingCi(projectId: string): void {
+    const { repos } = this.deps;
+    const project = repos.projects.byId(projectId);
+    if (!project || !project.github_repo || project.github_ci_pending !== 1) return;
+    repos.projects.patch(projectId, { github_ci_pending: 0 });
+    this.emitProject(projectId);
+    void this.runCiGeneration(projectId).catch((err) => {
+      console.error(`[github] échec de la génération CI automatique pour ${projectId}:`, err);
+    });
+  }
+
   /** Small claude session writing .github/workflows/ci.yml, then push. */
-  async generateCi(projectId: string): Promise<void> {
+  private async runCiGeneration(projectId: string): Promise<void> {
     const { repos, ws, runner, mutex } = this.deps;
     await mutex.run(projectId, async () => {
       const project = repos.projects.byId(projectId);

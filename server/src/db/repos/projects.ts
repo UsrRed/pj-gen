@@ -32,6 +32,8 @@ export interface ProjectRow {
   github_auto_mode: number;
   github_last_push_sha: string | null;
   github_last_push_at: number | null;
+  /** 1 while a generate-ci request is queued, waiting for the project to get a github_repo. */
+  github_ci_pending: number;
   created_at: number;
   updated_at: number;
 }
@@ -69,6 +71,7 @@ const PATCHABLE = new Set([
   'github_auto_mode',
   'github_last_push_sha',
   'github_last_push_at',
+  'github_ci_pending',
 ]);
 
 export class ProjectsRepo {
@@ -215,6 +218,7 @@ export class ProjectsRepo {
             lastPushAt: row.github_last_push_at,
           }
         : null,
+      githubCiPending: row.github_ci_pending === 1,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };

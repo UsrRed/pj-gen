@@ -90,7 +90,8 @@ export const api = {
     req<ProjectSummary>(`/api/projects/${id}/github/link`, { method: 'POST', body: JSON.stringify({ private: isPrivate }) }),
   githubPush: (id: string, message?: string) =>
     req<ProjectSummary>(`/api/projects/${id}/github/push`, { method: 'POST', body: JSON.stringify({ message }) }),
-  githubGenerateCi: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}/github/generate-ci`, { method: 'POST', body: '{}' }),
+  githubGenerateCi: (id: string) =>
+    req<{ ok: boolean; status: 'queued' | 'generated' }>(`/api/projects/${id}/github/generate-ci`, { method: 'POST', body: '{}' }),
   githubAutoMode: (id: string, enabled: boolean) =>
     req<ProjectSummary>(`/api/projects/${id}/github/auto-mode`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
   issues: (projectId?: string) => req<{ issues: IssueDto[] }>(`/api/issues${projectId ? `?projectId=${projectId}` : ''}`),

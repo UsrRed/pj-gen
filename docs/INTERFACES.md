@@ -18,6 +18,7 @@
 **Divers** (`misc.ts`) : `GET /steps/:runId/logs`, `GET /projects/:id/artifacts[/file]`, `POST /projects/:id/open-folder`, `GET/POST /projects/:id/app[/start|/stop]`, `GET/PATCH /settings`, `GET /lan`, `POST /settings/notify-test`, `GET /quota`, `POST /quota/probe`, `GET /stats`, `GET /health`.
 
 **GitHub** (`github.ts`) : `GET /github/status|repos`, `POST /github/clone`, `POST /projects/:id/github/link|push|generate-ci`, `PATCH /projects/:id/github/auto-mode`, `GET /issues`, `POST /issues/:id/decision`, `GET/POST/DELETE /github/trusted-users[/:login]`.
+`POST /projects/:id/github/generate-ci` répond `{ ok: true, status: 'queued' | 'generated' }` : `queued` si le projet n'est pas encore lié à GitHub — la demande est persistée (`projects.github_ci_pending`, exposé au client via `ProjectSummary.githubCiPending`) et se déclenche automatiquement (sans nouvel appel) au prochain `github/link` ou `github/auto-mode` réussi, via `project.updated`; `generated` si le workflow a été écrit et poussé immédiatement.
 
 **Accès** (`access.ts`) : `GET/POST /projects/:id/access`, `PATCH/DELETE /projects/:id/access/:accessId`, `POST /projects/:id/access/:accessId/secrets` (seule route qui manipule des valeurs secrètes — écrit `.env`, ne les stocke ni ne les renvoie jamais), `POST /projects/:id/access/:accessId/test`.
 

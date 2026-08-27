@@ -48,6 +48,8 @@ export interface ProjectSummary {
   designBenchmark: boolean | null;
   /** GitHub link state; null when the project is not published. */
   github: { repo: string; private: boolean; autoMode: boolean; lastPushSha: string | null; lastPushAt: number | null } | null;
+  /** True while a generate-ci request is queued, waiting for the project to be linked to GitHub. */
+  githubCiPending: boolean;
   createdAt: number;
   updatedAt: number;
 }

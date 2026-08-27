@@ -98,8 +98,8 @@ export function registerGithubRoutes(app: FastifyInstance, c: Container): void {
 
   app.post('/api/projects/:id/github/generate-ci', async (req) => {
     const { id } = req.params as { id: string };
-    await c.github.generateCi(id);
-    return { ok: true };
+    const result = await c.github.generateCi(id);
+    return { ok: true, status: result.status };
   });
 
   app.patch('/api/projects/:id/github/auto-mode', async (req) => {
