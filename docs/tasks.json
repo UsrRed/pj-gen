@@ -316,6 +316,34 @@
       "status": "done",
       "commitSha": "90b56eed101ae9e9f826df266718eab639242c35",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T13",
+      "position": 12,
+      "title": "Fusion automatique (via Claude) en cas de push non-fast-forward dans generate-ci",
+      "description": "Le flux POST /projects/:id/github/generate-ci écrit le workflow CI puis exécute `git push origin HEAD` dans le workspace du projet. Quand le dépôt distant a divergé (commits distants absents localement), ce push échoue avec 'non-fast-forward' et l'issue GitHub liée reste bloquée avec un message générique ('résolution manuelle nécessaire'), sans tentative de résolution automatique — contrairement à ce que prévoyait T07 pour d'autres chemins de push.\n\nAjouter, dans la logique de push utilisée par generate-ci (probable helper partagé avec le push GitHub général, à localiser via docs/ARCHITECTURE.md), une gestion spécifique du cas non-fast-forward : avant d'abandonner, faire un `git fetch` + tentative de `git merge`/rebase de la branche distante dans le workspace, puis retenter le push. Si la fusion produit des conflits, lancer une session Claude dédiée (cwd = workspace du projet, outils activés) chargée de résoudre les conflits et de committer, puis retenter le push une seule fois. Si la fusion automatique (avec ou sans Claude) échoue toujours, conserver le comportement actuel de repli (commentaire GitHub explicatif + statut bloqué), en gardant un message clair pour l'utilisateur.\n\nNe pas modifier les contrats documentés dans docs/INTERFACES.md (la réponse de la route generate-ci reste `{ ok: true, status: 'queued' | 'generated' }`); si un nouveau statut ou champ interne est introduit, le documenter dans docs/INTERFACES.md et docs/PROGRESS.md dans le même commit.",
+      "filesHint": [
+        "server/src/http/routes/github.ts",
+        "docs/ARCHITECTURE.md",
+        "docs/INTERFACES.md"
+      ],
+      "writes": [
+        "server/src/http/routes/github.ts",
+        "docs/ARCHITECTURE.md",
+        "docs/INTERFACES.md"
+      ],
+      "acceptance": [
+        "Simulation d'un push non-fast-forward sur generate-ci (remote avec un commit absent localement) : le système effectue un fetch+merge automatique et le push finit par réussir sans intervention manuelle, vérifiable par test.",
+        "Si le merge automatique produit des conflits, une session Claude est invoquée pour les résoudre et committer, puis le push est retenté ; ce chemin est couvert par un test simulant un conflit de fusion.",
+        "Si la fusion (avec ou sans Claude) échoue malgré tout, le comportement de repli existant (commentaire GitHub + statut bloqué) est conservé et testé.",
+        "La réponse HTTP de POST /projects/:id/github/generate-ci reste conforme au contrat existant ({ ok: true, status: 'queued' | 'generated' })."
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }
