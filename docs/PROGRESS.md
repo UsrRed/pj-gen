@@ -38,3 +38,4 @@
 - 2026-08-27T17:24:33.425Z — T15 terminé (Clarifier les critères du filtre de sécurité des issues GitHub (T11))
 - 2026-08-27T17:24:56.605Z — vérification finale OK — prêt à déployer
 - 2026-08-27T17:27:34.879Z — T16 terminé (Polish visuel : décor et transitions fluides sur les cartes/panneaux de l'UI web)
+- 2026-08-27T17:27:58.032Z — vérification finale OK — prêt à déployer
