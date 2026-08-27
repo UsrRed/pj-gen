@@ -284,8 +284,8 @@
       "dependsOn": [],
       "after": [],
       "phase": "core",
-      "status": "pending",
-      "commitSha": null,
+      "status": "done",
+      "commitSha": "0ce3408f502161e602764b6cb0f0fe29f31dde4a",
       "worktreeDir": null
     }
   ]
