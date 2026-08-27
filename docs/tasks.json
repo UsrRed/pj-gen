@@ -287,6 +287,35 @@
       "status": "done",
       "commitSha": "0ce3408f502161e602764b6cb0f0fe29f31dde4a",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T12",
+      "position": 11,
+      "title": "Animations de survol fluides sur les boutons de l'UI web",
+      "description": "Ajouter des transitions CSS fluides (hover/active/focus : légère élévation, changement d'ombre/couleur, transform scale subtil) sur les boutons de l'interface web du client (styles globaux et/ou composant Button partagé). Ne pas réorganiser la mise en page ni ajouter d'éléments décoratifs additionnels — ce périmètre plus large ('décors', 'réorganisation') dépasse une micro-tâche et n'est pas traité ici. Aucune modification de contrat d'API/interface.",
+      "filesHint": [
+        "client/src/index.css",
+        "client/src/styles",
+        "client/src/components/Button.tsx",
+        "client/src/components/ui/Button.tsx"
+      ],
+      "writes": [
+        "client/src/index.css",
+        "client/src/styles",
+        "client/src/components/Button.tsx",
+        "client/src/components/ui/Button.tsx"
+      ],
+      "acceptance": [
+        "Au survol/clic d'un bouton dans l'UI web, une transition visuelle fluide (durée ~150-250ms, ease) est visible plutôt qu'un changement instantané",
+        "Aucun changement de comportement fonctionnel des boutons (clics, formulaires) n'est introduit",
+        "Le build client passe (npm run build ou équivalent) sans erreur"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }

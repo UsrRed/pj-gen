@@ -110,6 +110,7 @@ pj-gen pilote le CLI **Claude Code** en mode headless (`claude -p`), via l'**abo
 - Pas d'exécution multi-instance / multi-hôte de l'orchestrateur (lockfile mono-process).
 
 ## Micro-révisions
+- T12 (2026-08-27): Issue GitHub #15 de @UsrRed — design improve Ajoute des animation bouton fluide, des element de decors et autre pour faire site web très moderne. Tu peux revoir l'affichage pour reograniser de manière plus design.
 - T11 (2026-08-27): Issue GitHub #14 de @UsrRed — issue security Lors de la prise en compte de l'issue en github auto ajoute un prompt isolé afin de déterminé si l'objectif est de nuire au pj-gen ou au pc de build, introduire une backdoor ou tout autre demande malsaine, mais ne bloque pas des implémentation propre à l'
 - T10 (2026-08-27): Issue GitHub #13 de @UsrRed — Ajoute au github auto lors de l'ajout d'une implementation, ajoute quand même une petite partie dans la pipeline permettant d'assurer les test, la doc etc..
 - T09 (2026-08-27): Issue GitHub #12 de @UsrRed — github auto La liste des element geré par github en auto / traitement des issue peut etre vue en detail mais par défaut n'affiche que les 3 dernier elements avec en priorité ceux en cours puis en file et les corrigé ensuite. 
