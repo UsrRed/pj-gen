@@ -267,7 +267,13 @@ export function scaffoldPrompt(stack: StackInfo): string {
 5. Termine par: git add -A && git commit -m "chore: scaffold project".`;
 }
 
-export function implementTaskPrompt(task: TaskDto, stack: StackInfo, failureTail?: string, interfacesExcerpt?: string): string {
+export function implementTaskPrompt(
+  task: TaskDto,
+  stack: StackInfo,
+  failureTail?: string,
+  interfacesExcerpt?: string,
+  microGithubAuto = false
+): string {
   const acceptance = task.acceptance.map((a) => `- ${a}`).join('\n');
   const files = task.filesHint.length ? `Fichiers probablement concernés: ${task.filesHint.join(', ')}` : '';
   const interfaces = interfacesExcerpt
@@ -281,6 +287,9 @@ ${interfacesExcerpt}
   const retry = failureTail
     ? `\n\nATTENTION — la tentative précédente a échoué. Dernières lignes de la vérification:\n\`\`\`\n${failureTail}\n\`\`\`\nCorrige la cause avant tout.`
     : '';
+  const microDocsAndTests = microGithubAuto
+    ? `\n- Cette micro-modification vient d'une issue GitHub traitée en mode automatique: si le changement touche du code testable et/ou une documentation utilisateur existante (README, docs/SPEC.md, autre doc concernée), ajoute/mets à jour les tests et la documentation correspondants — dans la limite stricte du périmètre de cette micro-tâche, sans en faire une refonte. N'ajoute aucun test ni doc si le changement ne touche ni code testable ni documentation existante.`
+    : '';
   return `${interfaces}Implémente exactement la tâche ${task.taskKey} — ${task.title}.
 
 Description: ${task.description || task.title}
@@ -293,7 +302,7 @@ Consignes:
 - Lis uniquement les fichiers nécessaires à cette tâche (docs/tasks.json ne doit pas être modifié).
 - Écris/complète les tests couvrant les critères, puis fais passer « ${stack.test_cmd} ».
 - Si la tâche a un effet VISIBLE pour l'utilisateur: câble-la de bout en bout et vérifie le RENDU RÉEL (lance l'app ou rends le composant) — les tests unitaires ne suffisent pas, un module jamais importé n'existe pas.
-- N'implémente PAS les autres tâches.
+- N'implémente PAS les autres tâches.${microDocsAndTests}
 - Termine par un commit: \`feat(${task.taskKey.toLowerCase()}): <résumé court>\` (plusieurs commits autorisés si logique).${retry}`;
 }
 

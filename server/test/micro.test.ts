@@ -104,6 +104,77 @@ describe('live micro-modifications', () => {
   });
 });
 
+describe('implement_task prompt for GitHub-auto issue micro-requests (T10)', () => {
+  it('issue-sourced fix on an auto-mode project gets the tests/docs instruction', async () => {
+    let capturedPrompt: string | undefined;
+    const script = fastScript((spec) => {
+      if (spec.tools !== 'none' && spec.prompt.includes('Micro-modification simulée')) {
+        capturedPrompt = spec.prompt;
+      }
+      return undefined;
+    });
+    const { c } = await testContainer({ script });
+    cRef = c;
+    const id = await seedQueuedProject(c, 'Micro Auto Prompt');
+    c.scheduler.start();
+    await waitFor(() => c.repos.projects.byId(id)!.status === 'awaiting_deploy_approval', 20_000, 'build initial');
+    c.repos.projects.casStatus(id, ['awaiting_deploy_approval'], 'deployed');
+    c.repos.projects.patch(id, { github_repo: 'usrred/micro-auto-prompt', github_private: 1, github_auto_mode: 1 });
+
+    const outcome = await c.micro.create(id, 'Issue: le bouton export est cassé.', 'issue', 43);
+    expect(outcome.status).toBe('queued');
+    await waitFor(() => c.repos.projects.byId(id)!.status === 'deployed', 20_000, 'retour direct deployed');
+
+    expect(capturedPrompt).toBeDefined();
+    expect(capturedPrompt).toMatch(/issue GitHub traitée en mode automatique/);
+    expect(capturedPrompt).toMatch(/tests et la documentation/);
+  });
+
+  it('manual micro request does not get the GitHub-auto tests/docs instruction', async () => {
+    let capturedPrompt: string | undefined;
+    const script = fastScript((spec) => {
+      if (spec.tools !== 'none' && spec.prompt.includes('Micro-modification simulée')) {
+        capturedPrompt = spec.prompt;
+      }
+      return undefined;
+    });
+    const { c } = await testContainer({ script });
+    cRef = c;
+    const id = await seedQueuedProject(c, 'Micro Manual Prompt');
+    c.scheduler.start();
+    await waitFor(() => c.repos.projects.byId(id)!.status === 'awaiting_deploy_approval', 20_000, 'build initial');
+
+    const outcome = await c.micro.create(id, 'Corrige le libellé du bouton principal.');
+    expect(outcome.status).toBe('queued');
+    await waitFor(() => c.repos.projects.byId(id)!.status === 'awaiting_deploy_approval', 20_000, 'micro run');
+
+    expect(capturedPrompt).toBeDefined();
+    expect(capturedPrompt).not.toMatch(/issue GitHub traitée en mode automatique/);
+  });
+
+  it('issue-sourced fix on a project WITHOUT auto mode does not get the instruction', async () => {
+    let capturedPrompt: string | undefined;
+    const script = fastScript((spec) => {
+      if (spec.tools !== 'none' && spec.prompt.includes('Micro-modification simulée')) {
+        capturedPrompt = spec.prompt;
+      }
+      return undefined;
+    });
+    const { c } = await testContainer({ script });
+    cRef = c;
+    const id = await seedQueuedProject(c, 'Micro Issue No Auto');
+    c.scheduler.start();
+    await waitFor(() => c.repos.projects.byId(id)!.status === 'awaiting_deploy_approval', 20_000, 'build initial');
+
+    const outcome = await c.micro.create(id, 'Issue: le bouton export est cassé.', 'issue', 44);
+    expect(outcome.status).toBe('queued');
+    await waitFor(() => c.repos.projects.byId(id)!.status === 'awaiting_deploy_approval', 20_000, 'micro run');
+
+    expect(capturedPrompt).toBeDefined();
+    expect(capturedPrompt).not.toMatch(/issue GitHub traitée en mode automatique/);
+  });
+});
+
 describe('shouldEscalateMicro (T06 scope decision)', () => {
   it('final_verify failing always signals scope beyond a micro-modification', () => {
     expect(shouldEscalateMicro('final_verify', 'Corrige la faute de frappe dans le libellé.')).toBe(true);

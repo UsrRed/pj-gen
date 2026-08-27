@@ -589,6 +589,18 @@ export function topoOrder(tasks: TaskDto[]): TaskDto[] {
 /** Outcome of one task inside a parallel batch. `requeued` = degrade to serial next round. */
 type TaskOutcome = StepFlow | { status: 'requeued' };
 
+/**
+ * True when `task` is the live task of a micro-request sourced from a GitHub issue on a
+ * project running in auto mode — the implement_task prompt then asks for tests/docs too,
+ * since final_verify is the only automated check left after this single task.
+ */
+function isMicroGithubAutoTask(ctx: StepCtx, task: TaskDto): boolean {
+  const { repos } = ctx.deps;
+  const project = repos.projects.byId(ctx.projectId);
+  if (!project || project.pipeline_mode !== 'micro' || project.github_auto_mode !== 1) return false;
+  return repos.micro.open(ctx.projectId).some((r) => r.task_key === task.taskKey && r.source === 'issue');
+}
+
 export async function stepImplementTasks(ctx: StepCtx): Promise<StepFlow> {
   const { repos, ws, bus, config, pool } = ctx.deps;
   const stack = ctx.getStack();
@@ -674,7 +686,7 @@ async function runOneTask(ctx: StepCtx, task: TaskDto, stack: StackInfo, interfa
   const flow = await runToolStep(ctx, {
     stepKey: 'implement_task',
     taskKey: task.taskKey,
-    buildPrompt: (attempt, tail) => implementTaskPrompt(task, stack, tail, interfacesExcerpt),
+    buildPrompt: (attempt, tail) => implementTaskPrompt(task, stack, tail, interfacesExcerpt, isMicroGithubAutoTask(ctx, task)),
     verifyKinds: ['test'],
     requireNewCommit: true,
     maxAttempts: 3,
@@ -755,7 +767,7 @@ async function runInWorktree(
     stepKey: 'implement_task',
     taskKey: task.taskKey,
     workRoot: dir,
-    buildPrompt: (attempt, tail) => implementTaskPrompt(task, stack, tail, interfacesExcerpt) + WORKTREE_RULES,
+    buildPrompt: (attempt, tail) => implementTaskPrompt(task, stack, tail, interfacesExcerpt, isMicroGithubAutoTask(ctx, task)) + WORKTREE_RULES,
     verifyKinds: ['test'],
     requireNewCommit: true,
     maxAttempts: 3,
