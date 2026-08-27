@@ -341,6 +341,31 @@ export const FEATURE_AUDIT_JSON_SCHEMA = {
   additionalProperties: false,
 };
 
+/**
+ * Verdict of the isolated security filter run on a GitHub issue before any auto-routing
+ * (micro or reopen). Scope is narrow on purpose: only an objective to harm pj-gen itself
+ * or the build machine is malicious — an unusual or aggressive PRODUCT request is not.
+ */
+export const IssueSecurityVerdictZ = z.object({
+  malicious: z.boolean(),
+  reason: z.string(),
+});
+export type IssueSecurityVerdict = z.infer<typeof IssueSecurityVerdictZ>;
+
+export const ISSUE_SECURITY_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    malicious: {
+      type: 'boolean',
+      description:
+        "true UNIQUEMENT si l'objectif de l'issue est de nuire à pj-gen ou à la machine de build (code destructeur, exfiltration de secrets, backdoor, désactivation de vérifications de sécurité) — jamais pour une demande produit inhabituelle ou agressive fonctionnellement",
+    },
+    reason: { type: 'string', description: 'Justification courte (une phrase)' },
+  },
+  required: ['malicious', 'reason'],
+  additionalProperties: false,
+};
+
 /** Extract structured output from a run: prefers structured_output, falls back to parsing result text. */
 export function extractStructured<T>(schema: z.ZodType<T>, structured: unknown, resultText: string): { ok: true; data: T } | { ok: false; error: string } {
   const candidates: unknown[] = [];

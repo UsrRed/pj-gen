@@ -11,6 +11,7 @@ export const DECISION_STYLE: Record<string, string> = {
   failed: 'bg-red-500/15 text-red-300',
   needs_clarification: 'bg-amber-500/15 text-amber-300',
   escalated: 'bg-violet-500/15 text-violet-300',
+  blocked_security: 'bg-red-700/20 text-red-400',
 };
 
 /** Pill styles for micro-request statuses (ProjectPage, IssuePage). */

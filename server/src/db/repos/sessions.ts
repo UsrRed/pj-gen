@@ -1,7 +1,7 @@
 import type { DB } from '../db.js';
 import { ZERO_USAGE, type RunUsage } from '../../claude/types.js';
 
-export type SessionKind = 'cadrage' | 'deploy' | 'step' | 'micro' | 'ci' | 'import';
+export type SessionKind = 'cadrage' | 'deploy' | 'step' | 'micro' | 'ci' | 'import' | 'issue_security';
 
 export interface SessionRow {
   id: string;

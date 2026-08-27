@@ -3,7 +3,7 @@ import type { StatsDto, TokenUsage } from '@pjgen/shared';
 import type { RunUsage } from '../../claude/types.js';
 import { tokensOf } from './stepRuns.js';
 
-export type UsageKind = 'step' | 'cadrage' | 'deploy' | 'micro' | 'ci' | 'import';
+export type UsageKind = 'step' | 'cadrage' | 'deploy' | 'micro' | 'ci' | 'import' | 'issue_security';
 
 /** Timestamped token consumption — powers the 5h-window gauge and the /stats page. */
 export class UsageRepo {

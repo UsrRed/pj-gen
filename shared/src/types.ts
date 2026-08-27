@@ -325,7 +325,8 @@ export type IssueDecision =
   | 'fixed'
   | 'failed'
   | 'needs_clarification'
-  | 'escalated';
+  | 'escalated'
+  | 'blocked_security';
 
 export interface IssueDto {
   id: number;

@@ -23,3 +23,5 @@
 - 2026-08-27T04:19:34.087Z — vérification finale OK — prêt à déployer
 - 2026-08-27T04:25:09.275Z — T10 terminé (Instruire implement_task des micro-requetes GitHub auto a inclure tests et doc)
 - 2026-08-27T04:25:32.384Z — vérification finale OK — prêt à déployer
+- 2026-08-27T06:35:00.000Z — T11 terminé (filtre de sécurité isolé avant tout routage auto d'une issue GitHub : session `tools:none` sur titre+corps seuls, nouveau schéma `IssueSecurityVerdictZ`, nouvelle décision `blocked_security` avec commentaire explicatif ; `docs/INTERFACES.md` mis à jour)
+- 2026-08-27T06:35:20.000Z — vérification finale OK — prêt à déployer

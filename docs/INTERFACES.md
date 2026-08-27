@@ -7,6 +7,7 @@
 - `TokenUsage = { input, output, cacheCreation, cacheRead, total }`.
 - `AccessDto` (access.ts) : `{ id, projectId, key, kind: AccessKind, label, required, why, fields: Record<string,string>, secretEnvVars: string[], status: needed|provided|skipped, source: cadrage|user, lastTestAt, lastTestOk, lastTestDetail }`. `ACCESS_KINDS = ssh|domain|database|api_key|smtp|object_storage|other`, champs par type dans `ACCESS_FIELD_SPECS`.
 - `EventPayloads` (events.ts) : 16 types d'événements SSE, dont `project.updated`, `step.started/log/finished`, `task.updated`, `chat.message`, `quota.updated`, `access.updated`, `app.status/log`, `issue.updated`, `micro.updated`, `boot.notice`.
+- `IssueDecision` : `pending | skipped | queued | fixing | ci_running | fixed | failed | needs_clarification | escalated | blocked_security`. `blocked_security` = verdict malveillant du filtre de sécurité isolé (T11, voir plus bas) — l'issue n'est jamais implémentée dans cet état.
 
 ## API HTTP (Fastify, préfixe `/api`)
 
@@ -44,6 +45,8 @@ interface RunResult {
 }
 ```
 Implémentations : `claude/runner.ts` (`createRealRunner`, spawn `claude` CLI, stdin=prompt, parse stdout NDJSON) et `claude/fakeRunner.ts` (simulation, `PJGEN_FAKE_CLI=1`). Point d'entrée commun : `executeClaudeRun(deps, ExecOpts)` (`pipeline/stepRunner.ts`) — bookkeeping DB (`step_runs`), logs, notification quota.
+
+**Filtre de sécurité des issues (T11)** : avant tout routage auto d'une issue GitHub (micro ou reopen), `IssuePoller.checkIssueSecurity` (`github/issuePoller.ts`) lance une session isolée dédiée (`tools: 'none'`, contexte = UNIQUEMENT titre + corps de l'issue, aucun historique projet) via `issueSecurityPrompt` (`prompts/steps.ts`) et le schéma `IssueSecurityVerdictZ` / `ISSUE_SECURITY_JSON_SCHEMA` (`prompts/schemas.ts`) → `{ malicious: boolean, reason: string }`. Verdict malveillant : l'issue passe en décision `blocked_security` (jamais implémentée), un commentaire explicatif est posté ; sinon le flux existant (T05/T06/T09) est inchangé. Fail-open (verdict bénin) si la session échoue ou si la sortie est invalide.
 
 ## Contrat interne : étape de pipeline
 

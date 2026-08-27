@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { REOPENABLE_STATUSES } from '@pjgen/shared';
 import type { CoreDeps } from '../core/deps.js';
 import type { GithubService } from './githubService.js';
@@ -7,6 +8,10 @@ import type { MicroService } from '../micro/microService.js';
 import type { SpecService } from '../cadrage/specService.js';
 import type { AssetResult } from './issueAssets.js';
 import { toIssueDto, type IssueRow, type MicroRequestRow, type ProjectRow } from '../db/repos/index.js';
+import { capsFor, resolveModel } from '../pipeline/models.js';
+import { recordUsage } from '../core/usageTracker.js';
+import { ISSUE_SECURITY_JSON_SCHEMA, IssueSecurityVerdictZ, extractStructured } from '../prompts/schemas.js';
+import { issueSecurityPrompt } from '../prompts/steps.js';
 
 /**
  * Suffix present in EVERY comment pj-gen posts. The owner and pj-gen share the
@@ -225,6 +230,44 @@ export class IssuePoller {
     for (const closed of repos.issues.markClosedExcept(project.id, remote.map((it) => it.number))) this.emitIssue(closed);
   }
 
+  /**
+   * Isolated security filter, run before ANY auto-routing (micro or reopen): a tool-less
+   * session sees ONLY the issue title + body (no comment thread, no project docs, no
+   * history) and decides whether the issue's objective is to harm pj-gen or the build
+   * machine. Fails open (benign) on a session/parsing failure — a flaky check must not
+   * jam the queue, and the downstream qualification session already treats the issue
+   * body as untrusted data (see class doc).
+   */
+  private async checkIssueSecurity(issue: Pick<IssueRow, 'project_id' | 'title' | 'body'>): Promise<{ malicious: boolean; reason: string }> {
+    const { repos, runner } = this.deps;
+    const project = repos.projects.byId(issue.project_id)!;
+    const sessionId = randomUUID();
+    repos.sessions.insert(sessionId, project.id, 'issue_security');
+    const { model, fallbackModel } = resolveModel(repos, project, 'issue_security');
+    const caps = capsFor(repos, 'issue_security');
+    const settings = repos.settings.getAll();
+    const handle = runner({
+      cwd: project.workspace_path,
+      prompt: issueSecurityPrompt(issue.title, issue.body),
+      sessionId,
+      resume: false,
+      model,
+      fallbackModel,
+      tools: 'none',
+      jsonSchema: ISSUE_SECURITY_JSON_SCHEMA,
+      maxBudgetUsd: settings.maxBudgetUsdPerSession,
+      maxTurns: caps.maxTurns,
+      timeoutMs: caps.timeoutMs,
+    });
+    const result = await handle.result;
+    repos.sessions.bump(sessionId, result.numTurns, result.costUsd, result.usage);
+    if (recordUsage(repos, project.id, 'issue_security', result)) this.deps.sched.emitQuota();
+    repos.sessions.setStatus(sessionId, 'closed');
+    if (result.outcome !== 'success') return { malicious: false, reason: '' };
+    const parsed = extractStructured(IssueSecurityVerdictZ, result.structured, result.resultText);
+    return parsed.ok ? parsed.data : { malicious: false, reason: '' };
+  }
+
   /** One issue at a time per project: queued → micro request (issue body stays in the tool-less session). */
   private async drainQueued(project: ProjectRow, ourLogin: string | null): Promise<void> {
     const { repos } = this.deps;
@@ -236,6 +279,21 @@ export class IssuePoller {
     if (!next) return;
     const fresh = repos.projects.byId(project.id)!;
     if (!['deployed', 'awaiting_deploy_approval', 'building', 'failed'].includes(fresh.status)) return;
+
+    const verdict = await this.checkIssueSecurity(next);
+    if (verdict.malicious) {
+      try {
+        await this.github.issueComment(
+          project.github_repo!,
+          next.number,
+          `pj-gen a détecté que cette issue vise à nuire à l'outil ou à la machine de build plutôt qu'à décrire une évolution produit, et ne la traitera pas automatiquement.\n\nMotif : ${verdict.reason || 'objectif de nuisance détecté'}.\n\n${AI_MENTION}`
+        );
+      } catch (err) {
+        console.error(`[issuePoller] failed to post security-block comment on issue #${next.number}:`, err);
+      }
+      this.emitIssue(repos.issues.patch(next.id, { decision: 'blocked_security' }));
+      return;
+    }
 
     this.emitIssue(repos.issues.patch(next.id, { decision: 'fixing' }));
     // Comment thread: clarification replies (text + their attachments) are part of the request.

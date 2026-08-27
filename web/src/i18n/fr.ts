@@ -316,6 +316,7 @@ gh auth login
     failed: 'échec',
     needs_clarification: 'précisions demandées',
     escalated: 'itération complète en cours',
+    blocked_security: 'bloquée (sécurité)',
   } as Record<string, string>,
   issueTrack: 'Suivi',
   issuePageTitle: (n: number) => `Issue #${n}`,

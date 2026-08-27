@@ -12,6 +12,7 @@ const GROUP_BY_DECISION: Record<IssueDecision, 0 | 1 | 2> = {
   fixed: 2,
   failed: 2,
   skipped: 2,
+  blocked_security: 2,
 };
 
 export function sortIssuesByPriority(issues: IssueDto[]): IssueDto[] {
