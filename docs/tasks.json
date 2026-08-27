@@ -233,6 +233,31 @@
       "status": "done",
       "commitSha": "c9dcfa964f35f6e0cb2b5820f91b7bc4134a24d2",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T10",
+      "position": 9,
+      "title": "Instruire implement_task des micro-requetes GitHub auto a inclure tests et doc",
+      "description": "Quand une micro-requete provient d'une issue GitHub traitee en mode auto (MICRO_PIPELINE_ORDER = implement_task, final_verify), le prompt de l'etape implement_task ne demande actuellement que l'implementation du changement demande. Ajouter dans la construction de ce prompt (server/src/prompts/steps.ts, fonction utilisee pour le step implement_task en contexte micro) une consigne explicite: si le changement modifie du code testable et/ou de la documentation utilisateur existante, l'agent doit aussi ajouter/mettre a jour les tests concernes et la documentation pertinente (README/SPEC/docs applicables), dans la limite du perimetre de la micro-requete, sans transformer la micro-requete en refonte. Ne pas ajouter de nouvelle etape au pipeline ni modifier MICRO_PIPELINE_ORDER (contrat StepKey fige); final_verify reste la seule verification automatisee apres coup.",
+      "filesHint": [
+        "server/src/prompts/steps.ts",
+        "server/src/pipeline/steps.ts"
+      ],
+      "writes": [
+        "server/src/prompts/steps.ts",
+        "server/src/pipeline/steps.ts"
+      ],
+      "acceptance": [
+        "Le prompt genere pour l'etape implement_task d'une micro-requete issue de GitHub auto contient une instruction explicite mentionnant la mise a jour des tests et de la documentation le cas echeant",
+        "MICRO_PIPELINE_ORDER et la liste des StepKey restent inchanges (toujours implement_task, final_verify)",
+        "Une micro-requete ne touchant ni code testable ni doc ne provoque pas d'ajout de fichiers de test/doc superflus (l'instruction est conditionnelle au perimetre du changement)"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }
