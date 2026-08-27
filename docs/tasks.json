@@ -207,6 +207,32 @@
       "status": "done",
       "commitSha": "cd4c486079be67a63fc648b62cfb46a97a15e67f",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T09",
+      "position": 8,
+      "title": "Limiter la liste GitHub auto à 3 éléments triés par priorité, avec détail complet accessible",
+      "description": "Dans le composant frontend qui affiche les issues/éléments gérés par le mode GitHub auto (alimenté par GET /api/issues), limiter l'affichage par défaut aux 3 derniers éléments, triés par priorité : d'abord ceux en cours de traitement, puis ceux en file d'attente, puis les corrigés/terminés (ordre décroissant de récence au sein de chaque groupe). Ajouter un moyen d'afficher la liste complète en détail (bouton \"voir plus\" ou lien vers vue détaillée), sans changer le contrat de l'API GET /api/issues (tri/troncature côté client uniquement). Localiser le composant concerné via docs/ARCHITECTURE.md (section web/frontend GitHub) avant modification.",
+      "filesHint": [
+        "docs/ARCHITECTURE.md",
+        "web/src/api/client.ts"
+      ],
+      "writes": [
+        "docs/ARCHITECTURE.md",
+        "web/src/api/client.ts"
+      ],
+      "acceptance": [
+        "Par défaut, la liste des éléments GitHub auto n'affiche que 3 éléments maximum",
+        "L'ordre affiché respecte la priorité : en cours > en file d'attente > corrigés/terminés",
+        "Un contrôle (bouton ou lien) permet d'accéder à la liste complète en détail",
+        "Le contrat de l'API GET /api/issues n'est pas modifié (tri et limite appliqués côté client)"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }
