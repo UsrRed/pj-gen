@@ -329,12 +329,25 @@ export class IssuePoller {
 
         const fresh = repos.projects.byId(project.id)!;
         const autoPush = fresh.github_auto_mode === 1 && fresh.github_private === 1;
-        const sync = await this.github.syncState(fresh);
-        if (autoPush) {
-          if (['building', 'deploying'].includes(fresh.status)) continue; // retry next tick
-          if (sync.ahead === null || sync.ahead > 0) await this.github.push(project.id);
-        } else if (sync.ahead === null || sync.ahead > 0) {
-          continue; // manual flow: finalize only once the fix commit reached the remote
+        // A push failure here (e.g. a merge conflict pushWithRetry could not resolve on its
+        // own) must not leave the issue stuck in 'fixing' forever: that also blocks every
+        // other queued issue behind it (drainQueued allows only one in-flight fix per project).
+        // Surface it as a definite 'failed' instead of retrying the same error every tick.
+        try {
+          const sync = await this.github.syncState(fresh);
+          if (autoPush) {
+            if (['building', 'deploying'].includes(fresh.status)) continue; // retry next tick
+            if (sync.ahead === null || sync.ahead > 0) await this.github.push(project.id);
+          } else if (sync.ahead === null || sync.ahead > 0) {
+            continue; // manual flow: finalize only once the fix commit reached the remote
+          }
+        } catch (err) {
+          const detail = (err as Error).message?.slice(0, 500) ?? 'échec de synchronisation avec le dépôt distant';
+          await this.github
+            .issueComment(project.github_repo!, issue.number, `Correctif prêt localement mais impossible à publier sur GitHub : ${detail}\n\n${AI_MENTION}`)
+            .catch(() => undefined);
+          this.emitIssue(repos.issues.patch(issue.id, { decision: 'failed' }));
+          continue;
         }
 
         if (!this.hasCiWorkflows(fresh)) {

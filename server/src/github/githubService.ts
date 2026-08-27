@@ -149,13 +149,55 @@ export class GithubService {
       if (!project.github_repo) throw conflict('Projet non publié sur GitHub');
       if (BUSY_STATUSES.includes(project.status)) throw conflict(`Push impossible en statut « ${project.status} »`);
       if (message?.trim()) await ws.commitAll(project.workspace_path, message.trim());
-      // HEAD instead of a hardcoded branch: imported repos may live on master or another default.
-      await this.git(project.workspace_path, ['push', 'origin', 'HEAD'], 60_000);
+      await this.pushWithRetry(projectId, project.workspace_path);
       const sha = await ws.headSha(project.workspace_path);
       repos.projects.patch(projectId, { github_last_push_sha: sha, github_last_push_at: Date.now() });
       this.emitProject(projectId);
       return repos.projects.byId(projectId)!;
     });
+  }
+
+  /**
+   * True when a `git push` failure is a plain non-fast-forward rejection (remote has commits
+   * we don't) — git reports this as "(non-fast-forward)" once our remote-tracking ref is known
+   * stale, or "(fetch first)" when we never fetched at all. Same underlying cause, same fix.
+   */
+  private isNonFastForward(err: unknown): boolean {
+    const stderr = (err as { stderr?: string } | undefined)?.stderr ?? '';
+    if (!stderr.includes('[rejected]')) return false;
+    return (
+      stderr.includes('non-fast-forward') ||
+      stderr.includes('fetch first') ||
+      stderr.includes('Updates were rejected because the tip of your current branch is behind')
+    );
+  }
+
+  /**
+   * `git push origin HEAD`; on a non-fast-forward rejection (the local branch drifted behind
+   * origin — e.g. a manual push, or a previous auto-push whose commit got amended upstream),
+   * fetch + merge the remote branch once and retry. A merge conflict aborts cleanly and
+   * surfaces a plain French HttpError instead of retrying forever with the same push error —
+   * `IssuePoller.finalizeFixing` calls this on every tick, and a silent infinite retry there
+   * leaves the originating GitHub issue stuck in "fixing" and blocks every issue queued behind it.
+   */
+  private async pushWithRetry(projectId: string, cwd: string): Promise<void> {
+    // HEAD instead of a hardcoded branch: imported repos may live on master or another default.
+    try {
+      await this.git(cwd, ['push', 'origin', 'HEAD'], 60_000);
+    } catch (err) {
+      if (!this.isNonFastForward(err)) throw err;
+      const branch = (await this.git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim() || 'main';
+      await this.git(cwd, ['fetch', 'origin'], 30_000);
+      try {
+        await this.git(cwd, ['merge', '--no-edit', `origin/${branch}`], 30_000);
+      } catch {
+        await this.git(cwd, ['merge', '--abort']).catch(() => undefined);
+        const detail = 'Le dépôt distant a des changements en conflit avec le workspace local — résolution manuelle nécessaire.';
+        this.deps.bus.emitTransient('app.log', projectId, { lines: [`[github push] ${detail}`] });
+        throw conflict(detail);
+      }
+      await this.git(cwd, ['push', 'origin', 'HEAD'], 60_000);
+    }
   }
 
   /** ahead/behind vs the current branch's remote counterpart (best-effort: null on fetch failure). */

@@ -323,6 +323,23 @@ describe('IssuePoller CI gate (finalizeFixing)', () => {
     expect(gh.closed).toEqual([5]);
     expect(gh.comments[0].body).toContain('Statut CI non confirmé');
   });
+
+  it('a push that keeps rejecting (diverged remote) settles the issue as failed instead of retrying forever', async () => {
+    const { gh, poller, issue } = await setup({ withCi: false });
+    gh.syncState = async () => ({ ahead: 1, behind: 0 });
+    gh.push = async () => {
+      throw new Error("failed to push: ! [rejected] HEAD -> main (non-fast-forward)");
+    };
+
+    await poller.tick();
+    expect(issue().decision).toBe('failed');
+    expect(gh.closed).toEqual([]); // never closed: the fix never reached GitHub
+    expect(gh.comments[0].body).toContain('impossible à publier sur GitHub');
+
+    // A further tick must not resurrect the stuck 'fixing' state or block the project's queue.
+    await poller.tick();
+    expect(issue().decision).toBe('failed');
+  });
 });
 
 describe('IssuePoller drainQueued: routing by scope (T05)', () => {
