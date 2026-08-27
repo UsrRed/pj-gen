@@ -34,3 +34,4 @@
 - 2026-08-27T17:07:21.887Z — T13 terminé (Fusion automatique (via Claude) en cas de push non-fast-forward dans generate-ci)
 - 2026-08-27T17:07:45.118Z — vérification finale OK — prêt à déployer
 - 2026-08-27T17:16:04.860Z — T14 terminé (Ordre de priorité correct dans la liste réduite des issues GitHub auto)
+- 2026-08-27T17:16:27.997Z — vérification finale OK — prêt à déployer
