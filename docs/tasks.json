@@ -344,6 +344,31 @@
       "status": "done",
       "commitSha": "248a8376cd50a18c4571ba0b9b01ed7f31bcc866",
       "worktreeDir": null
+    },
+    {
+      "taskKey": "T14",
+      "position": 13,
+      "title": "Ordre de priorité correct dans la liste réduite des issues GitHub auto",
+      "description": "Ajuster le tri de la liste réduite (3 éléments) des issues GitHub gérées en auto pour respecter l'ordre de priorité: 1) en cours de traitement (fixing, ci_running), 2) en file d'attente (queued, pending), 3) corrigées (fixed) en dernier. Le détail complet (liste non tronquée) reste accessible via la vue détaillée existante. Vérifier la logique de tri/limite déjà en place (T09) côté route GET /issues (server/src/http/routes/github.ts) et/ou côté composant web affichant la liste réduite, et corriger l'ordre si l'implémentation actuelle ne respecte pas exactement cette priorité (en_cours > en_file > corrigé).",
+      "filesHint": [
+        "server/src/http/routes/github.ts",
+        "server/src/github/issuePoller.ts"
+      ],
+      "writes": [
+        "server/src/http/routes/github.ts",
+        "server/src/github/issuePoller.ts"
+      ],
+      "acceptance": [
+        "Dans la vue réduite (3 éléments) de la liste GitHub auto, toute issue en statut fixing ou ci_running apparaît avant toute issue queued/pending",
+        "Les issues queued/pending apparaissent avant les issues fixed dans cette même vue réduite",
+        "La vue détail (non tronquée) continue d'afficher l'ensemble des issues, quel que soit leur statut"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
+      "worktreeDir": null
     }
   ]
 }
