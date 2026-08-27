@@ -18,9 +18,10 @@ pj-gen/
 │   ├── deploy/              DeployService (gate HITL)
 │   ├── micro/               MicroService (micro-modifications)
 │   ├── github/               GithubService (gh CLI), IssuePoller, issueAssets
-│   ├── access/               envFile (.env sécurisé), accessTest (SSH/DNS)
+│   ├── access/               envFile (.env sécurisé, par workspace ET global via dataDir), integrationSecrets, accessTest (SSH/DNS)
 │   ├── preview/               AppRunner (exécute le projet généré)
 │   └── http/                  app Fastify, routes, SSE
+├── server/assets/skills/    bundle de skills (issue #8) copié dans .claude/skills/ de chaque workspace généré (WorkspaceManager.writeBundledSkills)
 └── web/src/
     ├── App.tsx               shell + routing (react-router)
     ├── store/useStore.ts      état global zustand (SSE-driven)

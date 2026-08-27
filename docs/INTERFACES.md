@@ -6,8 +6,10 @@
 - `ProjectSize = small | mvp | large | enterprise` (figé à la validation du SPEC).
 - `TokenUsage = { input, output, cacheCreation, cacheRead, total }`.
 - `AccessDto` (access.ts) : `{ id, projectId, key, kind: AccessKind, label, required, why, fields: Record<string,string>, secretEnvVars: string[], status: needed|provided|skipped, source: cadrage|user, lastTestAt, lastTestOk, lastTestDetail }`. `ACCESS_KINDS = ssh|domain|database|api_key|smtp|object_storage|other`, champs par type dans `ACCESS_FIELD_SPECS`.
+- `IntegrationsSettings` (types.ts, sur `SettingsDto.integrations`) : `{ context7: boolean; exa: boolean; memoryProvider: 'none'|'mem0'|'supermemory' }` — toutes désactivées par défaut (issue #8). Objet complet requis au PATCH (même contrat que `notifyEvents` : `SettingsRepo.set` remplace tout le blob stocké, un payload partiel écraserait silencieusement les champs non envoyés).
 - `EventPayloads` (events.ts) : 16 types d'événements SSE, dont `project.updated`, `step.started/log/finished`, `task.updated`, `chat.message`, `quota.updated`, `access.updated`, `app.status/log`, `issue.updated`, `micro.updated`, `boot.notice`.
-- `IssueDecision` : `pending | skipped | queued | fixing | ci_running | fixed | failed | needs_clarification | escalated | blocked_security`. `blocked_security` = verdict malveillant du filtre de sécurité isolé (T11, voir plus bas) — l'issue n'est jamais implémentée dans cet état.
+- `IssueDecision` : `pending | skipped | queued | fixing | ci_running | fixed | failed | needs_clarification | escalated | blocked_security`. `blocked_security` = verdict malveillant du filtre de sécurité isolé (T19, voir plus bas) — l'issue n'est jamais implémentée dans cet état.
+- `AssetResult` (`github/issueAssets.ts`) : `{ url, file, ok, error?, textExcerpt? }` — `textExcerpt` (T13, « pdfinspector ») est le texte extrait par `github/pdfInspector.ts` (`extractPdfText`, lib `pdf-parse`, borné à 4000 caractères) pour une pièce jointe PDF ; jamais levé en erreur, `undefined`/`null` si non applicable ou illisible. Injecté par `buildIssueRequest` dans le texte transmis au cadrage/SPEC, explicitement marqué non fiable (même statut que le reste du corps de l'issue).
 
 ## API HTTP (Fastify, préfixe `/api`)
 
@@ -23,18 +25,23 @@
 
 **Accès** (`access.ts`) : `GET/POST /projects/:id/access`, `PATCH/DELETE /projects/:id/access/:accessId`, `POST /projects/:id/access/:accessId/secrets` (seule route qui manipule des valeurs secrètes — écrit `.env`, ne les stocke ni ne les renvoie jamais), `POST /projects/:id/access/:accessId/test`.
 
+**Intégrations optionnelles** (`misc.ts`, issue #8) : `GET /api/settings/integrations/secrets` (présence par nom uniquement, jamais la valeur), `POST /api/settings/integrations/secrets` (`{values: Record<string,string>}`, whitelist `CONTEXT7_API_KEY|EXA_API_KEY|MEM0_API_KEY|SUPERMEMORY_API_KEY` définie dans `access/integrationSecrets.ts`) — écrit dans `<dataDir>/.env` (global, 0600, réutilise `access/envFile.ts`) au lieu du `.env` d'un workspace. Activation/désactivation via `PATCH /api/settings {integrations}`.
+
 **SSE** (`sse.ts`) : `GET /events` (global), `GET /projects/:id/events` (scopé), support `Last-Event-ID` pour rejeu des événements manqués.
 
 ## Contrat interne : exécution d'une session Claude
 
 ```ts
 // server/src/claude/types.ts
+interface McpServerConfig { name: string; command: string; args?: string[]; env?: Record<string,string>; }
 interface SessionSpec {
   cwd: string; prompt: string; sessionId: string; resume: boolean; forkSession?: boolean;
   model: string; fallbackModel?: string;
   tools: 'none' | 'default' | string[];
   jsonSchema?: object; appendSystemPrompt?: string;
   maxBudgetUsd?: number; maxTurns: number; timeoutMs: number;
+  /** Optional per-session MCP allowlist (T08+: context7/EXA/mémoire). Absent = zéro serveur (défaut inchangé). */
+  mcpConfig?: McpServerConfig[];
 }
 type RunnerFn = (spec: SessionSpec, hooks?: RunHooks) => RunHandle;
 interface RunHandle { pid: number|null; result: Promise<RunResult>; cancel(reason): void; }
@@ -46,9 +53,13 @@ interface RunResult {
 ```
 Implémentations : `claude/runner.ts` (`createRealRunner`, spawn `claude` CLI, stdin=prompt, parse stdout NDJSON) et `claude/fakeRunner.ts` (simulation, `PJGEN_FAKE_CLI=1`). Point d'entrée commun : `executeClaudeRun(deps, ExecOpts)` (`pipeline/stepRunner.ts`) — bookkeeping DB (`step_runs`), logs, notification quota.
 
-**Filtre de sécurité des issues (T11)** : avant tout routage auto d'une issue GitHub (micro ou reopen), `IssuePoller.checkIssueSecurity` (`github/issuePoller.ts`) lance une session isolée dédiée (`tools: 'none'`, contexte = UNIQUEMENT titre + corps de l'issue, aucun historique projet) via `issueSecurityPrompt` (`prompts/steps.ts`) et le schéma `IssueSecurityVerdictZ` / `ISSUE_SECURITY_JSON_SCHEMA` (`prompts/schemas.ts`) → `{ malicious: boolean, reason: string }`. Verdict malveillant : l'issue passe en décision `blocked_security` (jamais implémentée), un commentaire explicatif est posté ; sinon le flux existant (T05/T06/T09) est inchangé. Fail-open (verdict bénin) si la session échoue ou si la sortie est invalide.
+**Filtre de sécurité des issues (T19)** : avant tout routage auto d'une issue GitHub (micro ou reopen), `IssuePoller.checkIssueSecurity` (`github/issuePoller.ts`) lance une session isolée dédiée (`tools: 'none'`, contexte = UNIQUEMENT titre + corps de l'issue, aucun historique projet) via `issueSecurityPrompt` (`prompts/steps.ts`) et le schéma `IssueSecurityVerdictZ` / `ISSUE_SECURITY_JSON_SCHEMA` (`prompts/schemas.ts`) → `{ malicious: boolean, reason: string }`. Verdict malveillant : l'issue passe en décision `blocked_security` (jamais implémentée), un commentaire explicatif est posté ; sinon le flux existant (T05/T06/T09) est inchangé. Fail-open (verdict bénin) si la session échoue ou si la sortie est invalide.
 
-**Push non-fast-forward assisté par Claude (T13)** : `GithubService.pushWithRetry` (`github/githubService.ts`), utilisé par `push()` et donc par `generateCi()` (dont le push final passe par `push()`), gère le rejet `[rejected] (non-fast-forward|fetch first)` en trois temps — 1) `git fetch` + `git merge --no-edit origin/<branche>` ; 2) si le merge est en conflit, `resolveConflictsWithClaude` lance une session Claude dédiée (`tools: 'default'`, cwd = workspace du projet, mid-merge) chargée de résoudre les marqueurs et de committer (`git add -A && git commit --no-edit`) — le succès n'est retenu que si `MERGE_HEAD` a bien disparu et qu'aucun chemin ne reste en conflit (`git status --porcelain`) ; 3) le push est retenté une seule fois si l'étape 1 ou 2 a réussi. Si tout échoue, comportement inchangé : `merge --abort`, erreur HTTP 409 avec message explicatif, log `app.log`. Aucun changement de contrat HTTP : `POST /projects/:id/github/generate-ci` renvoie toujours `{ ok: true, status: 'queued' | 'generated' }`.
+**Push non-fast-forward avec auto-résolution (T15/T21, réécrit)** : `GithubService.pushWithRetry(projectId, cwd, opts?: { autoResolve?: boolean })` (`github/githubService.ts`), utilisé par `push()` et donc par `generateCi()`, gère le rejet `[rejected] (non-fast-forward|fetch first)` en deux temps — 1) `git fetch` + `git merge --no-edit origin/<branche>` ; si ça suffit, retente `git push origin HEAD` une seule fois (comportement inchangé, y compris pour le bouton « push » manuel, `autoResolve` absent). 2) Si le merge est en conflit ET `opts.autoResolve` est actif (réservé au flux auto-issue — `IssuePoller.finalizeFixing` le passe uniquement quand le projet est privé + auto-mode, jamais le bouton manuel), `attemptAutoMergeResolution` prend le relais : le travail local est d'abord sauvegardé sur une branche jetable `auto/<branche>-conflict-<ts>` poussée sur GitHub (aucune perte, quoi qu'il arrive ensuite), une session Claude dédiée (`tools: 'default'`, cwd = workspace, mid-merge, `SessionKind`/`UsageKind` `'merge_resolve'`) tente de résoudre les marqueurs et de committer (`git add -A && git commit --no-edit`), puis `verifyStack` (install+build+test, `pipeline/verify.ts`) valide le résultat AVANT tout fast-forward de `<branche>` — seul un merge qui compile et passe les tests atteint `main`. Si une étape échoue (session non aboutie, ou vérification rouge), `<branche>` locale reste intacte et l'erreur HTTP 409 nomme la branche de secours pour revue manuelle (le commentaire GitHub posté par `finalizeFixing` la reprend telle quelle). Aucun changement de contrat HTTP : `POST /projects/:id/github/generate-ci` renvoie toujours `{ ok: true, status: 'queued' | 'generated' }`.
+
+`claude/sessionArgs.ts` `buildArgs(spec, caps): { argv: string[]; mcpConfigPath: string | null }` — `--strict-mcp-config` est TOUJOURS émis ; si `spec.mcpConfig` est fourni, un fichier JSON temporaire (`os.tmpdir()`, `0600`) listant uniquement ces serveurs est écrit et passé via `--mcp-config <path>` (allowlist explicite, jamais un config projet/utilisateur). `runner.ts` supprime ce fichier à la fermeture du process (best-effort).
+
+`pipeline/integrations.ts` (T09/T10/T11, issue #8) : `context7Mcp(deps)`, `exaMcp(deps)`, `memoryMcp(deps)` → `{ mcpConfig, tools: ['mcp__<serveur>__*'] } | null`. `null` tant que `SettingsDto.integrations` n'active pas l'intégration OU que la clé correspondante est absente de `<dataDir>/.env` (lue via `access/envFile.ts` `readEnvValues`, jamais exposée par HTTP). Branché uniquement sur `architecture`/`task_breakdown` (context7), `design_benchmark` (EXA), cadrage (mémoire — un seul provider actif à la fois, jamais mem0 ET supermemory ensemble).
 
 ## Contrat interne : étape de pipeline
 

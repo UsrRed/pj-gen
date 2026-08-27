@@ -8,6 +8,9 @@ import { generatedClaudeMd } from '../prompts/common.js';
 
 const execFileP = promisify(execFile);
 
+/** Curated skill bundle (issue #8): static files, no network/credentials — copied as-is into every workspace. */
+const BUNDLED_SKILLS_DIR = path.resolve(import.meta.dirname, '../../assets/skills');
+
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,38}$/;
 
 /**
@@ -76,9 +79,38 @@ export class WorkspaceManager {
     fs.writeFileSync(path.join(ws, '.gitignore'), 'node_modules/\ndist/\n.env\n*.log\n__pycache__/\n.venv/\n');
     fs.writeFileSync(path.join(ws, '.gitattributes'), GITATTRIBUTES);
     fs.writeFileSync(path.join(ws, 'docs', 'PROGRESS.md'), `# Progression\n\n- ${new Date().toISOString()} — workspace initialisé\n`);
+    this.writeBundledSkills(ws);
 
     await this.commitAll(ws, 'chore: initialize workspace');
     return ws;
+  }
+
+  /**
+   * Copies the curated skill bundle (issue #8: security-review, webapp-testing,
+   * code-simplify) into `.claude/skills/`. Sessions already run with
+   * `--setting-sources project,local`, so these load automatically for every
+   * tooled step — no flag, no MCP server, no credential involved. Idempotent:
+   * safe to call again on reopen to pick up a newer bundle.
+   */
+  writeBundledSkills(workspace: string): void {
+    if (!fs.existsSync(BUNDLED_SKILLS_DIR)) return;
+    const dest = path.join(workspace, '.claude', 'skills');
+    fs.mkdirSync(dest, { recursive: true });
+    fs.cpSync(BUNDLED_SKILLS_DIR, dest, { recursive: true });
+
+    const claudeMdPath = path.join(workspace, 'CLAUDE.md');
+    const marker = '## Skills disponibles';
+    if (fs.existsSync(claudeMdPath) && !fs.readFileSync(claudeMdPath, 'utf8').includes(marker)) {
+      const names = fs
+        .readdirSync(BUNDLED_SKILLS_DIR, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => `- \`${d.name}\``)
+        .join('\n');
+      fs.appendFileSync(
+        claudeMdPath,
+        `\n${marker}\n.claude/skills/ contient des skills pré-installés — invoque-les quand leur description correspond à la tâche en cours :\n${names}\n`
+      );
+    }
   }
 
   /**

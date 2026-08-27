@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { extractPdfText } from './pdfInspector.js';
 
 /** Attachments per issue: enough for screenshots/mockups, bounded against abuse. */
 const MAX_ASSETS = 8;
@@ -30,6 +31,8 @@ export interface AssetResult {
   file: string | null;
   ok: boolean;
   error?: string;
+  /** Extracted PDF text (« pdfinspector », issue #8) — set only for a successfully parsed PDF. */
+  textExcerpt?: string | null;
 }
 
 /** Extract GitHub attachment URLs from an issue body. Deduped, capped at MAX_ASSETS. */
@@ -84,9 +87,11 @@ export async function downloadIssueAssets(urls: string[], destDir: string, token
         results.push({ url, file: null, ok: false, error: 'fichier trop volumineux' });
         continue;
       }
-      const file = path.join(destDir, `piece-jointe-${i + 1}.${extensionFor(url, res.headers.get('content-type'))}`);
+      const ext = extensionFor(url, res.headers.get('content-type'));
+      const file = path.join(destDir, `piece-jointe-${i + 1}.${ext}`);
       fs.writeFileSync(file, buf);
-      results.push({ url, file, ok: true });
+      const textExcerpt = ext === 'pdf' ? await extractPdfText(file) : undefined;
+      results.push({ url, file, ok: true, textExcerpt });
     } catch (e) {
       results.push({ url, file: null, ok: false, error: e instanceof Error ? e.message : String(e) });
     }

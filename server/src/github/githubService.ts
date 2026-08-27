@@ -10,6 +10,7 @@ import { badRequest, conflict } from '../core/httpError.js';
 import { commonSystemPrompt } from '../prompts/common.js';
 import { recordUsage } from '../core/usageTracker.js';
 import { capsFor, resolveModel } from '../pipeline/models.js';
+import { verifyStack } from '../pipeline/verify.js';
 import { slugify } from '../pipeline/workspace.js';
 import { importAnalysisPrompt } from '../prompts/steps.js';
 import { IMPORT_JSON_SCHEMA, ImportOutputZ, extractStructured } from '../prompts/schemas.js';
@@ -144,7 +145,7 @@ export class GithubService {
   }
 
   /** Optional commit (custom message) + push origin main; refuses while a session owns the workspace. */
-  async push(projectId: string, message?: string): Promise<ProjectRow> {
+  async push(projectId: string, message?: string, opts: { autoResolve?: boolean } = {}): Promise<ProjectRow> {
     const { repos, ws, mutex } = this.deps;
     return mutex.run(projectId, async () => {
       const project = repos.projects.byId(projectId);
@@ -152,7 +153,7 @@ export class GithubService {
       if (!project.github_repo) throw conflict('Projet non publié sur GitHub');
       if (BUSY_STATUSES.includes(project.status)) throw conflict(`Push impossible en statut « ${project.status} »`);
       if (message?.trim()) await ws.commitAll(project.workspace_path, message.trim());
-      await this.pushWithRetry(projectId, project.workspace_path);
+      await this.pushWithRetry(projectId, project.workspace_path, opts);
       const sha = await ws.headSha(project.workspace_path);
       repos.projects.patch(projectId, { github_last_push_sha: sha, github_last_push_at: Date.now() });
       this.emitProject(projectId);
@@ -162,9 +163,8 @@ export class GithubService {
 
   /**
    * True when a `git push` failure is a plain non-fast-forward rejection (remote has commits
-   * we don't). Git reports this as "(non-fast-forward)" when our remote-tracking ref is
-   * already known to be stale, or "(fetch first)" when we never fetched at all — same
-   * underlying cause, same fix (fetch + merge + retry).
+   * we don't) — git reports this as "(non-fast-forward)" once our remote-tracking ref is known
+   * stale, or "(fetch first)" when we never fetched at all. Same underlying cause, same fix.
    */
   private isNonFastForward(err: unknown): boolean {
     const stderr = (err as { stderr?: string } | undefined)?.stderr ?? '';
@@ -177,12 +177,17 @@ export class GithubService {
   }
 
   /**
-   * `git push origin HEAD`; on a non-fast-forward rejection, fetch + merge the
-   * remote branch once and retry. A merge conflict is handed to a dedicated
-   * Claude session (`resolveConflictsWithClaude`) as a last resort before giving
-   * up; only if that also fails does the push surface as a clean HttpError.
+   * `git push origin HEAD`; on a non-fast-forward rejection (the local branch drifted behind
+   * origin — e.g. a manual push, or a previous auto-push whose commit got amended upstream),
+   * fetch + merge the remote branch once and retry. A merge conflict aborts cleanly and
+   * surfaces a plain French HttpError instead of retrying forever with the same push error —
+   * `IssuePoller.finalizeFixing` calls this on every tick, and a silent infinite retry there
+   * leaves the originating GitHub issue stuck in "fixing" and blocks every issue queued behind it.
+   * `opts.autoResolve` (auto-issue flow only, never the manual push button) attempts a further
+   * recovery via `attemptAutoMergeResolution` before giving up.
    */
-  private async pushWithRetry(projectId: string, cwd: string): Promise<void> {
+  private async pushWithRetry(projectId: string, cwd: string, opts: { autoResolve?: boolean } = {}): Promise<void> {
+    // HEAD instead of a hardcoded branch: imported repos may live on master or another default.
     try {
       await this.git(cwd, ['push', 'origin', 'HEAD'], 60_000);
     } catch (err) {
@@ -192,69 +197,91 @@ export class GithubService {
       try {
         await this.git(cwd, ['merge', '--no-edit', `origin/${branch}`], 30_000);
       } catch {
-        const resolved = await this.resolveConflictsWithClaude(projectId, cwd);
-        if (!resolved) {
-          await this.git(cwd, ['merge', '--abort']).catch(() => undefined);
-          const detail =
-            'Le dépôt distant a des changements en conflit avec le workspace local ; la résolution automatique (fusion puis assistant IA) a échoué, résolution manuelle nécessaire.';
-          this.deps.bus.emitTransient('app.log', projectId, { lines: [`[github push] ${detail}`] });
-          throw conflict(detail);
+        await this.git(cwd, ['merge', '--abort']).catch(() => undefined);
+        if (opts.autoResolve) {
+          await this.attemptAutoMergeResolution(projectId, cwd, branch);
+          return;
         }
+        const detail = 'Le dépôt distant a des changements en conflit avec le workspace local — résolution manuelle nécessaire.';
+        this.deps.bus.emitTransient('app.log', projectId, { lines: [`[github push] ${detail}`] });
+        throw conflict(detail);
       }
       await this.git(cwd, ['push', 'origin', 'HEAD'], 60_000);
     }
   }
 
   /**
-   * Last-resort conflict resolution: a dedicated, fully-tooled Claude session
-   * (cwd = project workspace, mid-merge) is asked to resolve the conflict
-   * markers and commit. Success is only reported when the merge actually
-   * completed (`MERGE_HEAD` gone, no unresolved path left) — a session that
-   * reports success without finishing the merge still counts as a failure, so
-   * the caller falls back to aborting + the manual-resolution message.
+   * Last-resort recovery for a genuine merge conflict, used only by the auto-issue flow
+   * (`IssuePoller.finalizeFixing`, itself gated to private repos with auto-mode on). Saves the
+   * local work to a throwaway branch on GitHub first (never lost, whatever happens next), then
+   * tries to resolve the conflict with a tool-using Claude session on that branch, verifies the
+   * result (install+build+test) before ever touching `<branch>`, and only fast-forwards/pushes
+   * `<branch>` when the resolved merge is proven to build and pass tests. Any failure along the
+   * way leaves `<branch>` untouched locally and rethrows a conflict() naming the recovery branch,
+   * which `finalizeFixing` already surfaces verbatim in its GitHub comment.
    */
-  private async resolveConflictsWithClaude(projectId: string, cwd: string): Promise<boolean> {
-    const { repos, runner } = this.deps;
+  private async attemptAutoMergeResolution(projectId: string, cwd: string, branch: string): Promise<void> {
+    const { repos, runner, config, bus } = this.deps;
     const project = repos.projects.byId(projectId);
-    if (!project) return false;
-    this.deps.bus.emitTransient('app.log', projectId, {
-      lines: ['[github push] conflit de fusion — tentative de résolution automatique via une session Claude'],
-    });
-    const sessionId = randomUUID();
-    repos.sessions.insert(sessionId, projectId, 'ci');
-    const { model, fallbackModel } = resolveModel(repos, project, 'ci');
-    const caps = capsFor(repos, 'ci');
-    const settings = repos.settings.getAll();
-    const handle = runner({
-      cwd,
-      prompt: [
-        'Un `git merge` est en cours dans ce dépôt et contient des conflits (marqueurs <<<<<<< / ======= / >>>>>>>).',
-        'Résous chaque conflit en préservant autant que possible les intentions des deux côtés, sans laisser aucun marqueur de conflit.',
-        'Termine impérativement par: git add -A && git commit --no-edit',
-        'Le merge doit être finalisé (plus de MERGE_HEAD) à la fin de la session.',
-      ].join('\n'),
-      sessionId,
-      resume: false,
-      model,
-      fallbackModel,
-      tools: 'default',
-      appendSystemPrompt: commonSystemPrompt(),
-      maxBudgetUsd: settings.maxBudgetUsdPerSession,
-      maxTurns: caps.maxTurns,
-      timeoutMs: caps.timeoutMs,
-    });
-    const result = await handle.result;
-    repos.sessions.bump(sessionId, result.numTurns, result.costUsd, result.usage);
-    if (recordUsage(repos, projectId, 'ci', result)) this.deps.sched.emitQuota();
-    repos.sessions.setStatus(sessionId, 'closed');
-    if (result.outcome !== 'success') return false;
-    const mergeStillOpen = await this.git(cwd, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).then(
-      () => true,
-      () => false
-    );
-    if (mergeStillOpen) return false;
-    const status = await this.git(cwd, ['status', '--porcelain']);
-    return !/^(UU|AA|DD|AU|UA|UD|DU) /m.test(status);
+    if (!project) throw conflict('Projet introuvable');
+    const recoveryBranch = `auto/${branch}-conflict-${Date.now()}`;
+    try {
+      // Unconditional save point: whatever happens below, this local work now exists on GitHub.
+      await this.git(cwd, ['push', 'origin', `HEAD:refs/heads/${recoveryBranch}`], 60_000);
+      await this.git(cwd, ['checkout', '-b', recoveryBranch]);
+      bus.emitTransient('app.log', projectId, {
+        lines: [`[github push] conflit réel — travail sauvegardé sur \`${recoveryBranch}\`, tentative de résolution automatique`],
+      });
+
+      await this.git(cwd, ['merge', '--no-edit', `origin/${branch}`], 30_000).catch(() => undefined);
+      if (fs.existsSync(path.join(cwd, '.git', 'MERGE_HEAD'))) {
+        const sessionId = randomUUID();
+        repos.sessions.insert(sessionId, projectId, 'merge_resolve');
+        const { model, fallbackModel } = resolveModel(repos, project, 'merge_resolve');
+        const caps = capsFor(repos, 'merge_resolve');
+        const settings = repos.settings.getAll();
+        const handle = runner({
+          cwd,
+          prompt: [
+            `Un merge git est en cours dans ce dépôt (fusion de origin/${branch} dans ${recoveryBranch}) et contient des conflits.`,
+            'Exécute `git status` pour lister les fichiers en conflit, résous CHAQUE conflit en préservant l’intention des deux côtés (ne supprime aucune fonctionnalité existante des deux historiques, n’en ajoute aucune nouvelle), puis termine par `git add -A && git commit --no-edit` pour clore le merge.',
+            'Si un conflit est réellement irréconciliable, explique pourquoi dans ta réponse finale sans faire de commit partiel.',
+          ].join('\n'),
+          sessionId,
+          resume: false,
+          model,
+          fallbackModel,
+          tools: 'default',
+          appendSystemPrompt: commonSystemPrompt(),
+          maxBudgetUsd: settings.maxBudgetUsdPerSession,
+          maxTurns: caps.maxTurns,
+          timeoutMs: caps.timeoutMs,
+        });
+        const result = await handle.result;
+        repos.sessions.bump(sessionId, result.numTurns, result.costUsd, result.usage);
+        if (recordUsage(repos, projectId, 'merge_resolve', result)) this.deps.sched.emitQuota();
+        repos.sessions.setStatus(sessionId, 'closed');
+      }
+      if (fs.existsSync(path.join(cwd, '.git', 'MERGE_HEAD'))) {
+        throw new Error('la session n’a pas terminé la résolution du conflit');
+      }
+
+      const stack = repos.projects.stackOf(project);
+      const verify = await verifyStack(config, cwd, stack, ['install', 'build', 'test'], { forceInstall: true });
+      if (!verify.ok) throw new Error(`vérification post-merge en échec (${verify.label}) : ${verify.tail.slice(0, 300)}`);
+
+      await this.git(cwd, ['push', 'origin', `HEAD:refs/heads/${recoveryBranch}`], 60_000);
+      await this.git(cwd, ['checkout', branch]);
+      await this.git(cwd, ['merge', '--ff-only', recoveryBranch]);
+      await this.git(cwd, ['push', 'origin', `HEAD:${branch}`], 60_000);
+    } catch (err) {
+      await this.git(cwd, ['merge', '--abort']).catch(() => undefined);
+      await this.git(cwd, ['checkout', branch]).catch(() => undefined);
+      const msg = err instanceof Error ? err.message : String(err);
+      throw conflict(
+        `Le dépôt distant a des changements en conflit avec le workspace local — résolution automatique tentée sans succès (${msg}). Le travail local a été sauvegardé sur la branche \`${recoveryBranch}\` sur GitHub pour revue manuelle.`
+      );
+    }
   }
 
   /** ahead/behind vs the current branch's remote counterpart (best-effort: null on fetch failure). */

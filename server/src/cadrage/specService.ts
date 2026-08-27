@@ -196,6 +196,9 @@ export class SpecService {
         await ws.commitAll(project.workspace_path, `docs: design reference (iteration ${newIteration})`);
         bus.emit('artifact.updated', projectId, { path: 'docs/design/README.md' });
       }
+      // Picks up a newer skill bundle on every reopen; idempotent, no-op if unchanged.
+      ws.writeBundledSkills(project.workspace_path);
+      await ws.commitAll(project.workspace_path, 'chore: refresh bundled skills');
       const sys = repos.messages.insert(projectId, 'cadrage', 'system', `🔄 Itération ${newIteration} ouverte — cadrage des améliorations.`);
       bus.emit('chat.message', projectId, { message: toMessageDto(sys) });
       const updated = repos.projects.byId(projectId)!;

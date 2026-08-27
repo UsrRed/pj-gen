@@ -77,6 +77,10 @@ export const api = {
   testAccess: (id: string, accessId: number) =>
     req<{ ok: boolean; detail: string; at: number }>(`/api/projects/${id}/access/${accessId}/test`, { method: 'POST', body: '{}' }),
   stats: () => req<StatsDto>('/api/stats'),
+  integrationSecrets: () => req<{ secretsPresent: string[] }>('/api/settings/integrations/secrets'),
+  /** Secret values go one way only: written to the global .env, never read back. */
+  putIntegrationSecrets: (values: Record<string, string>) =>
+    req<{ ok: boolean; written: string[] }>('/api/settings/integrations/secrets', { method: 'POST', body: JSON.stringify({ values }) }),
   notifyTest: () => req<{ ok: boolean }>('/api/settings/notify-test', { method: 'POST', body: '{}' }),
   lanStatus: () => req<LanStatusDto>('/api/lan'),
   appState: (id: string) => req<AppStateDto>(`/api/projects/${id}/app`),

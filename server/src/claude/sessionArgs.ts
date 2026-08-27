@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import type { Config } from '../config.js';
 import { READER_AGENTS } from '../prompts/common.js';
@@ -38,8 +40,18 @@ export function buildEnv(config: Config): NodeJS.ProcessEnv {
   return env;
 }
 
+/** Writes a scoped --mcp-config file for this run only; caller must delete it once the run ends. */
+function writeMcpConfig(spec: SessionSpec): string | null {
+  if (!spec.mcpConfig || spec.mcpConfig.length === 0) return null;
+  const mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }> = {};
+  for (const s of spec.mcpConfig) mcpServers[s.name] = { command: s.command, args: s.args, env: s.env };
+  const file = path.join(os.tmpdir(), `pjgen-mcp-${spec.sessionId}-${Date.now()}.json`);
+  fs.writeFileSync(file, JSON.stringify({ mcpServers }), { mode: 0o600 });
+  return file;
+}
+
 /** The prompt itself is written to stdin (not argv) — avoids argv size limits and ps exposure. */
-export function buildArgs(spec: SessionSpec, caps: Capabilities): string[] {
+export function buildArgs(spec: SessionSpec, caps: Capabilities): { argv: string[]; mcpConfigPath: string | null } {
   const argv = ['-p', '--output-format', 'stream-json', '--verbose'];
 
   if (spec.resume) {
@@ -65,7 +77,11 @@ export function buildArgs(spec: SessionSpec, caps: Capabilities): string[] {
   }
 
   if (caps.hasSettingSources) argv.push('--setting-sources', 'project,local');
+  // Always strict: the ONLY servers a session can ever see are the ones we explicitly
+  // allowlist below via --mcp-config, never a project/user-wide MCP config.
+  const mcpConfigPath = writeMcpConfig(spec);
   if (caps.hasStrictMcpConfig) argv.push('--strict-mcp-config');
+  if (mcpConfigPath) argv.push('--mcp-config', mcpConfigPath);
   argv.push(
     '--settings',
     JSON.stringify({
@@ -80,5 +96,5 @@ export function buildArgs(spec: SessionSpec, caps: Capabilities): string[] {
   if (spec.appendSystemPrompt) argv.push('--append-system-prompt', spec.appendSystemPrompt);
   if (spec.maxBudgetUsd && caps.hasMaxBudget) argv.push('--max-budget-usd', String(spec.maxBudgetUsd));
 
-  return argv;
+  return { argv, mcpConfigPath };
 }

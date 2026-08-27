@@ -1,12 +1,15 @@
 import { execFile } from 'node:child_process';
+import fs from 'node:fs';
 import { promisify } from 'node:util';
 import { z } from 'zod';
-import { MODEL_NAMES } from '@pjgen/shared';
+import { MEMORY_PROVIDERS, MODEL_NAMES } from '@pjgen/shared';
 import type { FastifyInstance } from 'fastify';
 import type { Container } from '../../container.js';
 import { badRequest, notFound } from '../../core/httpError.js';
 import { isSecretArtifact, listArtifacts } from '../../pipeline/artifacts.js';
 import { toStepRunDto } from '../../db/repos/index.js';
+import { ENV_NAME_RE, readEnvKeys, writeEnv } from '../../access/envFile.js';
+import { ALL_INTEGRATION_SECRET_VARS } from '../../access/integrationSecrets.js';
 
 const execFileP = promisify(execFile);
 
@@ -28,7 +31,18 @@ const SettingsPatchZ = z.object({
     .object({ deployReady: z.boolean(), buildFailed: z.boolean(), quotaResumed: z.boolean() })
     .optional(),
   exposeLan: z.boolean().optional(),
+  // Full object required (like notifyEvents) — set() overwrites the whole stored blob,
+  // so a partial payload here would silently reset the untouched fields to their default.
+  integrations: z
+    .object({
+      context7: z.boolean(),
+      exa: z.boolean(),
+      memoryProvider: z.enum(MEMORY_PROVIDERS),
+    })
+    .optional(),
 });
+
+const IntegrationSecretsZ = z.object({ values: z.record(z.string().max(4000)) });
 
 export function registerMiscRoutes(app: FastifyInstance, c: Container): void {
   app.get('/api/steps/:runId/logs', async (req) => {
@@ -111,6 +125,38 @@ export function registerMiscRoutes(app: FastifyInstance, c: Container): void {
     if (body.exposeLan !== undefined) await c.lan.apply(updated.exposeLan);
     c.scheduler.poke();
     return updated;
+  });
+
+  /**
+   * Presence-only, never values (same contract as the per-project access/:id/secrets route):
+   * lets the UI show "already set" without ever reading a key back out over HTTP.
+   */
+  app.get('/api/settings/integrations/secrets', async () => ({
+    secretsPresent: readEnvKeys(c.config.dataDir).filter((k) => ALL_INTEGRATION_SECRET_VARS.includes(k)),
+  }));
+
+  /**
+   * The ONLY route that handles an integration API key. Written straight to
+   * `<dataDir>/.env` (0600, global — shared by every project, never per-workspace) and
+   * never stored in SQLite or echoed back. The operator supplies their own key; pj-gen
+   * never signs up for or creates an account with any of these services.
+   */
+  app.post('/api/settings/integrations/secrets', async (req) => {
+    const body = IntegrationSecretsZ.parse(req.body);
+    const names = Object.keys(body.values);
+    if (!names.length) throw badRequest('aucune variable fournie');
+    for (const name of names) {
+      if (!ENV_NAME_RE.test(name)) throw badRequest(`nom de variable invalide: ${name}`);
+      if (!ALL_INTEGRATION_SECRET_VARS.includes(name)) throw badRequest(`variable « ${name} » inconnue`);
+    }
+    let written: string[];
+    try {
+      fs.mkdirSync(c.config.dataDir, { recursive: true }); // dbPath ':memory:' (tests) never creates it otherwise
+      written = writeEnv(c.config.dataDir, body.values);
+    } catch (err) {
+      throw badRequest((err as Error).message);
+    }
+    return { ok: true, written };
   });
 
   app.get('/api/lan', async () => c.lan.status());

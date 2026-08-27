@@ -1,6 +1,14 @@
 import type { FailureKind } from '@pjgen/shared';
 import type { RateLimitInfo } from './ndjson.js';
 
+/** One allowlisted MCP server for a single session. Never a project/user-wide config — always explicit and scoped. */
+export interface McpServerConfig {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
 export interface SessionSpec {
   cwd: string;
   prompt: string;
@@ -18,6 +26,13 @@ export interface SessionSpec {
   /** Self-enforced caps (the CLI no longer has --max-turns). */
   maxTurns: number;
   timeoutMs: number;
+  /**
+   * Optional per-session MCP allowlist (e.g. context7, EXA, memory). Always combined with
+   * --strict-mcp-config: this is the ONLY way a session gets an MCP server, and only the
+   * servers listed here — never a project/user-wide MCP config. Empty/absent = zero servers
+   * (unchanged default behavior).
+   */
+  mcpConfig?: McpServerConfig[];
 }
 
 export interface Failure {

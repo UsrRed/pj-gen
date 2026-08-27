@@ -39,3 +39,16 @@
 - 2026-08-27T17:24:56.605Z — vérification finale OK — prêt à déployer
 - 2026-08-27T17:27:34.879Z — T16 terminé (Polish visuel : décor et transitions fluides sur les cartes/panneaux de l'UI web)
 - 2026-08-27T17:27:58.032Z — vérification finale OK — prêt à déployer
+- 2026-08-25T22:28:38.000Z — T07 terminé (Support MCP scopé par session dans SessionSpec)
+- 2026-08-25T22:28:38.000Z — vérification finale OK
+- 2026-08-25T22:34:52.000Z — T08 terminé (Réglages globaux + secrets opérateur pour les intégrations optionnelles)
+- 2026-08-25T22:34:52.000Z — vérification finale OK
+- 2026-08-25T22:38:01.000Z — T12 terminé (Bundle de skills officiels dans chaque workspace généré)
+- 2026-08-25T22:38:01.000Z — vérification finale OK
+- 2026-08-25T22:42:03.000Z — T13 terminé (Extraction texte des PDF joints aux issues (« pdfinspector »), sans MCP)
+- 2026-08-25T22:42:03.000Z — vérification finale OK
+- 2026-08-25T22:45:24.000Z — T14 terminé (QA visuelle headless (remplace l'extension Chrome) sur test_hardening/feature_check)
+- 2026-08-25T22:45:24.000Z — vérification finale OK
+- 2026-08-25T22:52:11.000Z — T09/T10/T11 terminés (context7, EXA, mémoire mem0/supermemory — intégrations MCP scopées, désactivées par défaut)
+- 2026-08-25T22:52:11.000Z — vérification finale OK — issue #8 (T07-T14) traitée
+- 2026-08-27T02:35:00.000Z — hotfix : `GithubService.push` bloquait silencieusement `IssuePoller.finalizeFixing` en boucle infinie quand le workspace local avait divergé du remote (push rejeté « non-fast-forward » à chaque tick, jamais de résolution) — une correction pouvait être « terminée » (tâche/micro-request `done`) sans jamais faire avancer l'issue GitHub ni libérer la file d'attente du projet (une seule correction `fixing` en vol à la fois). Correctif : `push()` fetch+merge une fois puis retente ; un vrai conflit de fusion, ou tout autre échec de synchronisation dans `finalizeFixing`, fait désormais échouer l'issue (`decision: 'failed'` + commentaire explicite) au lieu de retenter indéfiniment en silence.

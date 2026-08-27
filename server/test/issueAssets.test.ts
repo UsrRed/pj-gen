@@ -35,7 +35,24 @@ describe('extractAttachmentUrls', () => {
 
 describe('downloadIssueAssets', () => {
   const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'pjgen-assets-'));
+  const pdfFixture = () => fs.readFileSync(path.resolve(import.meta.dirname, '../fixtures/pdf/hello.pdf'));
   afterEach(() => vi.unstubAllGlobals());
+
+  it('extrait le texte d’une pièce jointe PDF (T13, « pdfinspector »)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      async () => new Response(pdfFixture(), { status: 200, headers: { 'content-type': 'application/pdf' } })
+    );
+    const res = await downloadIssueAssets(['https://github.com/user-attachments/files/1/spec.pdf'], tmp(), null);
+    expect(res[0].ok).toBe(true);
+    expect(res[0].textExcerpt).toBe('Hello pj-gen');
+  });
+
+  it('un asset non-PDF n’a jamais de textExcerpt', async () => {
+    vi.stubGlobal('fetch', async () => new Response(Buffer.from('PNGDATA'), { status: 200, headers: { 'content-type': 'image/png' } }));
+    const res = await downloadIssueAssets(['https://github.com/user-attachments/assets/img'], tmp(), null);
+    expect(res[0].textExcerpt).toBeUndefined();
+  });
 
   it('writes sanitized filenames with the extension from content-type, and sends the token only to github.com', async () => {
     const calls: { url: string; auth: string | undefined }[] = [];

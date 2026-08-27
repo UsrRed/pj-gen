@@ -156,6 +156,21 @@ export interface NotifyEvents {
   quotaResumed: boolean;
 }
 
+/** Names of the optional MCP-backed integrations (issue #8) — off by default, opt-in per operator. */
+export const INTEGRATION_KEYS = ['context7', 'exa'] as const;
+export type IntegrationKey = (typeof INTEGRATION_KEYS)[number];
+export const MEMORY_PROVIDERS = ['none', 'mem0', 'supermemory'] as const;
+export type MemoryProvider = (typeof MEMORY_PROVIDERS)[number];
+
+export interface IntegrationsSettings {
+  /** context7 (library/API doc lookup) enabled for architecture/task_breakdown. */
+  context7: boolean;
+  /** EXA (web search) enabled for design_benchmark. */
+  exa: boolean;
+  /** At most ONE memory MCP active at a time — mem0 and supermemory overlap in purpose. */
+  memoryProvider: MemoryProvider;
+}
+
 export interface SettingsDto {
   /** Max projects building at once. */
   maxConcurrentBuilds: number;
@@ -184,6 +199,8 @@ export interface SettingsDto {
   exposeLan: boolean;
   /** Per-tier overrides of the built-in size profiles (task budget, cap multiplier, parallelism). */
   sizeProfiles: Partial<Record<ProjectSize, SizeProfileOverride>>;
+  /** Optional MCP integrations (issue #8): all off by default, gated on an operator-supplied key. */
+  integrations: IntegrationsSettings;
 }
 
 /** Operator-tunable slice of a size profile; anything omitted keeps the built-in value. */

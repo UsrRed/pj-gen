@@ -59,6 +59,15 @@ export function designExcerptBlock(excerpt: string): string {
   return `\n\nMaquette de référence fournie (extrait — le fichier complet est dans docs/design/):\n<MAQUETTE>\n${excerpt}\n</MAQUETTE>\nL'architecture doit prévoir sa mise en œuvre fidèle (structure des vues, composants, thème).`;
 }
 
+/** Appended when context7 (issue #8, T09) is enabled — architecture/task_breakdown only. */
+export const context7Block = `\n\nOutil context7 disponible (mcp__context7__*): utilise-le pour vérifier la doc/API/version actuelle d'une bibliothèque avant de fixer un choix technique précis (nom de package, version, signature d'API) — préfère-le à ta mémoire seule pour ces points-là.`;
+
+/** Appended when EXA (issue #8, T10) is enabled — design_benchmark only. */
+export const exaBlock = `\n\nOutil EXA disponible (mcp__exa__*): utilise-le pour la recherche web de ce benchmark plutôt que de t'appuyer uniquement sur ta mémoire.`;
+
+/** Appended when a memory provider (issue #8, T11) is enabled — cadrage only. */
+export const memoryBlock = `\n\nMémoire persistante disponible (outils mcp__*): au début de la conversation, rappelle les préférences déjà connues de l'utilisateur (stack, conventions, choix récurrents) avant de poser des questions redondantes. En fin de cadrage, enregistre les préférences durables qui ressortent de cet échange (pas les détails spécifiques à CE projet) pour les réutiliser sur un futur projet.`;
+
 /** Extra system context for cadrage turns on an improvement iteration. */
 export function revisionCadrageContext(iteration: number, currentSpec: string): string {
   return `CONTEXTE DE RÉVISION: ce projet est DÉJÀ CONSTRUIT (itération ${iteration}). L'utilisateur veut le réviser/améliorer.
@@ -404,6 +413,7 @@ export function testHardeningPrompt(stack: StackInfo): string {
 - Lis docs/SPEC.md pour identifier les cas limites importants (entrées invalides, bords, erreurs).
 - Ajoute des tests de cas limites pour la logique cœur uniquement (pas d'UI, pas de redondance).
 - Si le projet comporte une interface web front-end (déductible de docs/SPEC.md et docs/ARCHITECTURE.md): écris et exécute des tests end-to-end avec un outil de simulation de navigateur (ex. Playwright) qui reproduisent de vrais clics/saisies utilisateur, et vérifient au minimum (1) qu'une saisie invalide déclenche un message d'erreur clair et exploitable côté UI, et (2) que le parcours nominal (happy path) principal s'exécute de bout en bout sans erreur console/réseau ni blocage d'UI.
+  - QA visuelle (headless, sans extension/navigateur interactif) : dans ces mêmes tests Playwright, capture une screenshot après le happy path et une après le cas d'erreur, enregistrées sous docs/qa/screenshots/ (ex. happy-path.png, error-state.png). C'est la trace visuelle exploitée ensuite par l'audit de conformité — pas un rendu que tu regardes toi-même.
 - Garde la suite rapide (< 60 s). Si un test légitime échoue, corrige le code.
 - « ${stack.test_cmd} » doit passer. Termine par un commit \`test: harden edge cases\`.`;
 }
@@ -440,9 +450,10 @@ Lis docs/SPEC.md (fonctionnalités F1..Fn, éléments différenciants, critères
 - Pour les exigences visuelles/UX: exige un rendu réel (DOM, canvas, sortie) — un catalogue de données, un «resolver» ou un attribut posé sur une div ne sont PAS un rendu.
 - Vérifie que les dépendances clés déclarées dans docs/ARCHITECTURE.md sont réellement utilisées.
 - Lance l'app ou les tests si nécessaire pour constater.
+- Si docs/qa/screenshots/ existe (produit par test_hardening): pour une fonctionnalité visuelle/UX, ouvre les captures pertinentes comme preuve du rendu réel et liste leurs chemins dans screenshots.
 
 Statuts: ok (réellement câblée et conforme), partial (présente mais incomplète/dégradée), missing (absente ou non câblée). Sois SÉVÈRE: dans le doute, partial.
-Pour chaque entrée: evidence = fichiers/éléments précis constatés; fix_hint = quoi faire concrètement ("" si ok).`;
+Pour chaque entrée: evidence = fichiers/éléments précis constatés; fix_hint = quoi faire concrètement ("" si ok); screenshots = chemins docs/qa/screenshots/... utilisés comme preuve visuelle (liste vide si aucune ou non applicable).`;
 }
 
 export interface FeatureGap {

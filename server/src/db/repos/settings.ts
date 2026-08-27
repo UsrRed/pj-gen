@@ -69,6 +69,7 @@ export const DEFAULT_SETTINGS: SettingsDto = {
   notifyEvents: { deployReady: true, buildFailed: true, quotaResumed: true },
   exposeLan: false,
   sizeProfiles: {},
+  integrations: { context7: false, exa: false, memoryProvider: 'none' },
 };
 
 export class SettingsRepo {
@@ -103,6 +104,7 @@ export class SettingsRepo {
       notifyEvents: { ...DEFAULT_SETTINGS.notifyEvents, ...parse('notify_events', {}) },
       exposeLan: parse('expose_lan', DEFAULT_SETTINGS.exposeLan),
       sizeProfiles: parse('size_profiles', DEFAULT_SETTINGS.sizeProfiles),
+      integrations: { ...DEFAULT_SETTINGS.integrations, ...parse('integrations', {}) },
     };
   }
 
@@ -127,6 +129,7 @@ export class SettingsRepo {
       ['notifyEvents', 'notify_events'],
       ['exposeLan', 'expose_lan'],
       ['sizeProfiles', 'size_profiles'],
+      ['integrations', 'integrations'],
     ];
     this.db.transaction(() => {
       for (const [prop, key] of mapping) {

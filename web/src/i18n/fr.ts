@@ -403,4 +403,21 @@ gh auth login
   sLanAlreadyExposed: 'Le serveur est déjà exposé via PJGEN_HOST — ce réglage est sans effet.',
   sLanNoInterface: 'Activé, mais aucune interface réseau locale détectée.',
   sLanErrors: 'Erreurs :',
+  // Intégrations optionnelles (context7, EXA, mem0/supermemory — issue #8)
+  sIntegrationsSection: 'Intégrations optionnelles',
+  sIntegrationsHint:
+    "Toutes désactivées par défaut. Chaque intégration a besoin de TA propre clé API (pj-gen ne crée jamais de compte) et n'est utilisée que pour l'étape du pipeline concernée — le reste des sessions continue de tourner sans aucun serveur MCP.",
+  sIntegrationContext7: 'context7 — doc de bibliothèques à jour',
+  sIntegrationContext7Hint: 'Utilisé pour les étapes architecture et découpage en tâches.',
+  sIntegrationExa: 'EXA — recherche web',
+  sIntegrationExaHint: 'Utilisé pour le benchmark de design.',
+  sIntegrationMemory: 'Mémoire persistante en cadrage',
+  sIntegrationMemoryHint: "Retient tes préférences (stack, conventions) d'un projet à l'autre. Un seul fournisseur actif à la fois.",
+  sIntegrationMemoryNone: 'Désactivée',
+  sIntegrationKeyLabel: 'Clé API',
+  sIntegrationKeySet: 'clé enregistrée ✓',
+  sIntegrationKeyMissing: 'clé requise pour activer',
+  sIntegrationKeyPlaceholder: 'Coller la clé…',
+  sIntegrationKeySave: 'Enregistrer la clé',
+  sIntegrationKeySaved: 'Clé enregistrée ✓',
 };

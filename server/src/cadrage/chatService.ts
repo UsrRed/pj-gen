@@ -3,10 +3,11 @@ import type { CoreDeps } from '../core/deps.js';
 import { toAccessDto, toMessageDto } from '../db/repos/index.js';
 import type { MessageRow } from '../db/repos/index.js';
 import { CADRAGE_JSON_SCHEMA, CadrageReplyZ, extractStructured } from '../prompts/schemas.js';
-import { CADRAGE_SYSTEM, revisionCadrageContext } from '../prompts/steps.js';
+import { CADRAGE_SYSTEM, memoryBlock, revisionCadrageContext } from '../prompts/steps.js';
 import { commonSystemPrompt } from '../prompts/common.js';
 import { capsFor, resolveModel } from '../pipeline/models.js';
 import { recordUsage } from '../core/usageTracker.js';
+import { memoryMcp } from '../pipeline/integrations.js';
 import type { Failure } from '../claude/types.js';
 
 const QUOTA_MARGIN_MS = 2 * 60 * 1000;
@@ -93,6 +94,9 @@ export class ChatService {
       if (spec) revisionContext = `\n\n${revisionCadrageContext(project.iteration, spec.content)}`;
     }
 
+    // Optional persistent memory (issue #8, T11) — off by default, opt-in + operator key.
+    const memory = memoryMcp(this.deps);
+
     const handle = runner({
       cwd: project.workspace_path,
       prompt: userText,
@@ -100,9 +104,10 @@ export class ChatService {
       resume,
       model,
       fallbackModel,
-      tools: 'none',
+      tools: memory?.tools ?? 'none',
+      mcpConfig: memory?.mcpConfig,
       jsonSchema: CADRAGE_JSON_SCHEMA,
-      appendSystemPrompt: `${CADRAGE_SYSTEM}\n\n${commonSystemPrompt()}${revisionContext}`,
+      appendSystemPrompt: `${CADRAGE_SYSTEM}\n\n${commonSystemPrompt()}${revisionContext}${memory ? memoryBlock : ''}`,
       maxBudgetUsd: settings.maxBudgetUsdPerSession,
       maxTurns: caps.maxTurns,
       timeoutMs: caps.timeoutMs,
