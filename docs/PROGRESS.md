@@ -18,3 +18,4 @@
 - 2026-08-25T23:17:55.210Z — vérification finale OK — prêt à déployer
 - 2026-08-27T00:47:18.138Z — T08 terminé (generate-ci: programmer la génération si aucun token GitHub n'est disponible)
 - 2026-08-27T00:47:38.324Z — vérification finale OK — prêt à déployer
+- 2026-08-27T06:20:00.000Z — T09 terminé (liste GitHub auto limitée à 3 éléments triés par priorité, "voir plus" pour le détail complet ; ajout de `vitest`+jsdom sur `web/` pour tester la logique/les composants client)

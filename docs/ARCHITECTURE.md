@@ -44,7 +44,7 @@ pj-gen/
 ## Dépendances réelles
 
 - **Serveur** : `fastify` (+`@fastify/cors`,`@fastify/static`), `better-sqlite3`, `zod`, `@pjgen/shared` (workspace). Dev : `tsx`, `typescript`, `vitest`.
-- **Web** : `react`/`react-dom` 19, `react-router-dom` 7, `zustand` 5, `react-markdown`. Dev : `vite` 7, `@vitejs/plugin-react`, `tailwindcss` 4 (+`@tailwindcss/vite`), `typescript`.
+- **Web** : `react`/`react-dom` 19, `react-router-dom` 7, `zustand` 5, `react-markdown`. Dev : `vite` 7, `@vitejs/plugin-react`, `tailwindcss` 4 (+`@tailwindcss/vite`), `typescript`, `vitest` (+`jsdom`, `@testing-library/react`, `@testing-library/jest-dom`) pour les tests de composants/logique client (`web/test/*.test.{ts,tsx}`).
 - **Racine** : `concurrently` (dev orchestration `dev`/`dev:fake`).
 - Binaires externes invoqués via `execFile`/`spawn` : `claude` (CLI Claude Code), `git`, `gh` (GitHub CLI), `xdg-open` (ouverture dossier hôte, best-effort).
 - Aucune base de données externe : SQLite fichier unique en WAL, migrations versionnées via `PRAGMA user_version` (`db/migrations.ts`, v1→v12).
@@ -54,6 +54,6 @@ pj-gen/
 - `npm run dev` / `dev:fake` (racine) : `server` (`tsx watch`) + `web` (`vite`) en parallèle via `concurrently`.
 - `npm run build` : build du frontend (`web/dist`), servi statiquement par Fastify en prod (`http/app.ts`).
 - `npm start` / `start:fake` : lance uniquement le serveur (`tsx src/index.ts`), qui sert aussi `web/dist` s'il existe.
-- `npm test` : `vitest run` dans `server/` (tests d'intégration sur fixtures NDJSON réelles enregistrées, machine à états, scheduler, recovery, jail de chemins — voir `server/test/*.test.ts` et `server/fixtures/ndjson/*`).
+- `npm test` : `vitest run` dans `server/` (tests d'intégration sur fixtures NDJSON réelles enregistrées, machine à états, scheduler, recovery, jail de chemins — voir `server/test/*.test.ts` et `server/fixtures/ndjson/*`), puis `vitest run` dans `web/` (jsdom, logique client et composants — `web/test/*.test.{ts,tsx}`).
 - `npm run typecheck` : `tsc --noEmit` server + web.
 - Mode simulation (`PJGEN_FAKE_CLI=1`) : `claude/fakeRunner.ts` remplace tout appel réel — utile pour tester l'UI/pipeline sans consommer de quota.

@@ -6,6 +6,7 @@ import { StatusBadge } from '../components/StatusBadge.js';
 import { Spinner } from '../components/ConfirmButton.js';
 import { T } from '../i18n/fr.js';
 import { DECISION_STYLE } from '../components/badges.js';
+import { DEFAULT_ISSUE_LIMIT, sortIssuesByPriority } from '../lib/issuePriority.js';
 
 function CommandBlock({ command }: { command: string }) {
   const [copied, setCopied] = useState(false);
@@ -99,11 +100,15 @@ function LinkedRepoCard({ repo, onAction, busy }: { repo: GithubRepoView; onActi
   );
 }
 
-function IssuesSection({ issues, onDecision, busy }: { issues: IssueDto[]; onDecision: (id: number, d: 'skipped' | 'queued') => void; busy: string | null }) {
+export function IssuesSection({ issues, onDecision, busy }: { issues: IssueDto[]; onDecision: (id: number, d: 'skipped' | 'queued') => void; busy: string | null }) {
+  const [expanded, setExpanded] = useState(false);
   if (!issues.length) return <p className="text-sm text-zinc-500">{T.ghNoIssues}</p>;
+  const sorted = sortIssuesByPriority(issues);
+  const visible = expanded ? sorted : sorted.slice(0, DEFAULT_ISSUE_LIMIT);
+  const hidden = sorted.length - visible.length;
   return (
     <div className="space-y-1.5">
-      {issues.map((i) => (
+      {visible.map((i) => (
         <div key={i.id} className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2 text-xs">
           <span className="shrink-0 font-mono text-zinc-500">#{i.number}</span>
           <span className={`shrink-0 rounded-full px-2 py-0.5 font-medium ${DECISION_STYLE[i.decision]}`}>{T.ghIssueDecision[i.decision]}</span>
@@ -129,6 +134,11 @@ function IssuesSection({ issues, onDecision, busy }: { issues: IssueDto[]; onDec
           )}
         </div>
       ))}
+      {(hidden > 0 || expanded) && sorted.length > DEFAULT_ISSUE_LIMIT && (
+        <button className="btn-ghost !px-2 !py-0.5 text-xs !text-zinc-500" onClick={() => setExpanded((e) => !e)}>
+          {expanded ? T.ghIssuesShowLess : T.ghIssuesShowMore(hidden)}
+        </button>
+      )}
     </div>
   );
 }

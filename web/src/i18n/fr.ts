@@ -300,6 +300,8 @@ gh auth login
   ghNoIssues: 'Aucune issue synchronisée — le poller vérifie régulièrement les dépôts liés.',
   ghIssueDo: 'Corriger',
   ghIssueSkip: 'Ignorer',
+  ghIssuesShowMore: (n: number) => `Voir ${n} de plus`,
+  ghIssuesShowLess: 'Réduire',
   ghTrustedUsers: 'Utilisateurs de confiance',
   ghTrustedHint: 'Les issues de ces logins GitHub sont corrigées automatiquement, même hors mode auto.',
   ghTrustedAdd: 'Ajouter',
