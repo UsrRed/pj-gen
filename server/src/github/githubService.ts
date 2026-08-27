@@ -178,8 +178,9 @@ export class GithubService {
 
   /**
    * `git push origin HEAD`; on a non-fast-forward rejection, fetch + merge the
-   * remote branch once and retry. Any other push error, or a merge conflict,
-   * propagates (conflicts as a clean HttpError — no assisted resolution here).
+   * remote branch once and retry. A merge conflict is handed to a dedicated
+   * Claude session (`resolveConflictsWithClaude`) as a last resort before giving
+   * up; only if that also fails does the push surface as a clean HttpError.
    */
   private async pushWithRetry(projectId: string, cwd: string): Promise<void> {
     try {
@@ -191,13 +192,69 @@ export class GithubService {
       try {
         await this.git(cwd, ['merge', '--no-edit', `origin/${branch}`], 30_000);
       } catch {
-        await this.git(cwd, ['merge', '--abort']).catch(() => undefined);
-        const detail = 'Le dépôt distant a des changements en conflit avec le workspace local, résolution manuelle nécessaire.';
-        this.deps.bus.emitTransient('app.log', projectId, { lines: [`[github push] ${detail}`] });
-        throw conflict(detail);
+        const resolved = await this.resolveConflictsWithClaude(projectId, cwd);
+        if (!resolved) {
+          await this.git(cwd, ['merge', '--abort']).catch(() => undefined);
+          const detail =
+            'Le dépôt distant a des changements en conflit avec le workspace local ; la résolution automatique (fusion puis assistant IA) a échoué, résolution manuelle nécessaire.';
+          this.deps.bus.emitTransient('app.log', projectId, { lines: [`[github push] ${detail}`] });
+          throw conflict(detail);
+        }
       }
       await this.git(cwd, ['push', 'origin', 'HEAD'], 60_000);
     }
+  }
+
+  /**
+   * Last-resort conflict resolution: a dedicated, fully-tooled Claude session
+   * (cwd = project workspace, mid-merge) is asked to resolve the conflict
+   * markers and commit. Success is only reported when the merge actually
+   * completed (`MERGE_HEAD` gone, no unresolved path left) — a session that
+   * reports success without finishing the merge still counts as a failure, so
+   * the caller falls back to aborting + the manual-resolution message.
+   */
+  private async resolveConflictsWithClaude(projectId: string, cwd: string): Promise<boolean> {
+    const { repos, runner } = this.deps;
+    const project = repos.projects.byId(projectId);
+    if (!project) return false;
+    this.deps.bus.emitTransient('app.log', projectId, {
+      lines: ['[github push] conflit de fusion — tentative de résolution automatique via une session Claude'],
+    });
+    const sessionId = randomUUID();
+    repos.sessions.insert(sessionId, projectId, 'ci');
+    const { model, fallbackModel } = resolveModel(repos, project, 'ci');
+    const caps = capsFor(repos, 'ci');
+    const settings = repos.settings.getAll();
+    const handle = runner({
+      cwd,
+      prompt: [
+        'Un `git merge` est en cours dans ce dépôt et contient des conflits (marqueurs <<<<<<< / ======= / >>>>>>>).',
+        'Résous chaque conflit en préservant autant que possible les intentions des deux côtés, sans laisser aucun marqueur de conflit.',
+        'Termine impérativement par: git add -A && git commit --no-edit',
+        'Le merge doit être finalisé (plus de MERGE_HEAD) à la fin de la session.',
+      ].join('\n'),
+      sessionId,
+      resume: false,
+      model,
+      fallbackModel,
+      tools: 'default',
+      appendSystemPrompt: commonSystemPrompt(),
+      maxBudgetUsd: settings.maxBudgetUsdPerSession,
+      maxTurns: caps.maxTurns,
+      timeoutMs: caps.timeoutMs,
+    });
+    const result = await handle.result;
+    repos.sessions.bump(sessionId, result.numTurns, result.costUsd, result.usage);
+    if (recordUsage(repos, projectId, 'ci', result)) this.deps.sched.emitQuota();
+    repos.sessions.setStatus(sessionId, 'closed');
+    if (result.outcome !== 'success') return false;
+    const mergeStillOpen = await this.git(cwd, ['rev-parse', '-q', '--verify', 'MERGE_HEAD']).then(
+      () => true,
+      () => false
+    );
+    if (mergeStillOpen) return false;
+    const status = await this.git(cwd, ['status', '--porcelain']);
+    return !/^(UU|AA|DD|AU|UA|UD|DU) /m.test(status);
   }
 
   /** ahead/behind vs the current branch's remote counterpart (best-effort: null on fetch failure). */

@@ -29,3 +29,5 @@
 - 2026-08-27T04:34:29.496Z — vérification finale OK — prêt à déployer
 - 2026-08-27T04:36:37.840Z — T12 terminé (Animations de survol fluides sur les boutons de l'UI web)
 - 2026-08-27T04:37:01.031Z — vérification finale OK — prêt à déployer
+- 2026-08-27T17:06:15.000Z — T13 terminé (push non-fast-forward dans generate-ci : fetch+merge automatique, puis session Claude dédiée pour résoudre un conflit de fusion et committer avant de retenter le push une seule fois ; repli inchangé — commentaire GitHub + statut bloqué — si tout échoue ; `docs/INTERFACES.md` mis à jour)
+- 2026-08-27T17:06:35.000Z — vérification finale OK — prêt à déployer
