@@ -156,286 +156,6 @@
     {
       "taskKey": "T07",
       "position": 6,
-      "title": "Support MCP scopé par session dans SessionSpec",
-      "description": "Ajouter au contrat SessionSpec (server/src/claude/types.ts) un champ optionnel mcpConfig: McpServerConfig[] (name/command/args/env) permettant d'allowlister explicitement un ou plusieurs serveurs MCP pour UNE session donnée, sans jamais ouvrir sur un config MCP projet/utilisateur. Dans server/src/claude/sessionArgs.ts (buildArgs), --strict-mcp-config reste toujours émis (comportement par défaut inchangé) ; quand spec.mcpConfig est fourni, écrire un fichier JSON temporaire (os.tmpdir(), permissions 0600, nommé par sessionId) contenant uniquement ces serveurs et le passer via --mcp-config <path>. buildArgs retourne désormais { argv, mcpConfigPath } au lieu de argv seul ; server/src/claude/runner.ts consomme ce nouveau retour et supprime le fichier temporaire à la fermeture du process (best-effort, non bloquant). Aucun branchement pipeline dans cette tâche : c'est la plomberie de base pour T09/T10/T11.",
-      "filesHint": [
-        "server/src/claude/types.ts",
-        "server/src/claude/sessionArgs.ts",
-        "server/src/claude/runner.ts",
-        "docs/INTERFACES.md"
-      ],
-      "writes": [
-        "server/src/claude/types.ts",
-        "server/src/claude/sessionArgs.ts",
-        "server/src/claude/runner.ts",
-        "server/test/mcpConfig.test.ts",
-        "server/test/readerAgent.test.ts",
-        "docs/INTERFACES.md"
-      ],
-      "acceptance": [
-        "Un SessionSpec sans mcpConfig produit un argv identique à avant (--strict-mcp-config seul, pas de --mcp-config, aucun fichier écrit)",
-        "Un SessionSpec avec mcpConfig produit --strict-mcp-config ET --mcp-config <fichier>, le fichier contenant exactement les serveurs listés (aucun autre)",
-        "Le fichier temporaire est supprimé après la fin du run (vérifié par test ou lecture du code de nettoyage)",
-        "docs/INTERFACES.md documente le nouveau champ mcpConfig et le nouveau retour de buildArgs",
-        "La suite de tests server passe en entier (npm test)"
-      ],
-      "dependsOn": [],
-      "after": [],
-      "phase": "foundation",
-      "status": "done",
-      "commitSha": "7a3cdbef8d066d6194bceeb331aff8bc0292a5d9",
-      "worktreeDir": null
-    },
-    {
-      "taskKey": "T08",
-      "position": 7,
-      "title": "Réglages globaux + secrets opérateur pour les intégrations optionnelles",
-      "description": "Ajouter SettingsDto.integrations: { context7: boolean, exa: boolean, memoryProvider: 'none'|'mem0'|'supermemory' } (shared/src/types.ts), désactivé par défaut, exposé via GET/PATCH /api/settings existant (objet complet requis au PATCH, même contrat que notifyEvents). Créer server/src/access/integrationSecrets.ts (mapping intégration -> nom de variable .env : CONTEXT7_API_KEY, EXA_API_KEY, MEM0_API_KEY, SUPERMEMORY_API_KEY). Réutiliser server/src/access/envFile.ts (readEnvKeys/writeEnv) en le pointant sur c.config.dataDir (global, ~/.pj-gen/.env, 0600) au lieu d'un workspace de projet : deux nouvelles routes GET/POST /api/settings/integrations/secrets (présence par nom seulement, jamais la valeur, whitelist stricte). Ajouter le panneau « Intégrations optionnelles » dans web/src/pages/SettingsPage.tsx (toggle par intégration + champ clé masqué write-only, off par défaut) — aucune création de compte automatique, l'opérateur fournit sa propre clé.",
-      "filesHint": [
-        "shared/src/types.ts",
-        "server/src/db/repos/settings.ts",
-        "server/src/http/routes/misc.ts",
-        "server/src/access/integrationSecrets.ts",
-        "web/src/pages/SettingsPage.tsx",
-        "web/src/api/client.ts",
-        "web/src/i18n/fr.ts",
-        "docs/INTERFACES.md"
-      ],
-      "writes": [
-        "shared/src/types.ts",
-        "server/src/db/repos/settings.ts",
-        "server/src/http/routes/misc.ts",
-        "server/src/access/integrationSecrets.ts",
-        "server/test/integrationSettings.test.ts",
-        "web/src/pages/SettingsPage.tsx",
-        "web/src/api/client.ts",
-        "web/src/i18n/fr.ts",
-        "docs/INTERFACES.md"
-      ],
-      "acceptance": [
-        "GET /api/settings expose integrations désactivé par défaut ({context7:false, exa:false, memoryProvider:'none'})",
-        "PATCH /api/settings {integrations:{...}} persiste les trois champs sans effacer les autres réglages",
-        "POST /api/settings/integrations/secrets écrit la clé dans <dataDir>/.env (0600) et ne la renvoie jamais dans la réponse HTTP",
-        "GET /api/settings/integrations/secrets ne retourne que les NOMS des variables déjà présentes, jamais leur valeur",
-        "Une variable hors whitelist est rejetée (400)",
-        "Le panneau Settings web permet d'activer une intégration et de saisir sa clé sans jamais l'afficher en clair après enregistrement",
-        "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
-      ],
-      "dependsOn": [],
-      "after": [
-        "T07"
-      ],
-      "phase": "foundation",
-      "status": "done",
-      "commitSha": "b758ac9f61b439dc7e615a636640a2c745cb45dd",
-      "worktreeDir": null
-    },
-    {
-      "taskKey": "T09",
-      "position": 8,
-      "title": "context7 (doc de bibliothèques) sur architecture/task_breakdown",
-      "description": "Implémentée avec T10/T11 (plomberie commune server/src/pipeline/integrations.ts, un seul commit). context7Mcp(deps) (server/src/pipeline/integrations.ts) retourne null tant que settings.integrations.context7 est faux ou que CONTEXT7_API_KEY est absente de <dataDir>/.env, sinon { mcpConfig: [...], tools: ['mcp__context7__*'] }. Branché dans stepArchitecture et stepTaskBreakdown (server/src/pipeline/steps.ts) : quand actif, remplace tools:'none' par la liste retournée, passe mcpConfig à runGenerationStep (nouveau champ GenOpts.mcpConfig, threadé jusqu'à SessionSpec), et ajoute context7Block (server/src/prompts/steps.ts) au prompt pour inciter à vérifier la doc/version à jour d'une lib avant de la fixer.",
-      "filesHint": [
-        "server/src/pipeline/integrations.ts",
-        "server/src/pipeline/steps.ts",
-        "server/src/prompts/steps.ts"
-      ],
-      "writes": [
-        "server/src/pipeline/integrations.ts",
-        "server/src/pipeline/steps.ts",
-        "server/src/prompts/steps.ts",
-        "server/test/integrations.test.ts",
-        "docs/INTERFACES.md"
-      ],
-      "acceptance": [
-        "context7Mcp retourne null par défaut (désactivé) et quand activé sans clé enregistrée",
-        "context7Mcp retourne le bon mcpConfig (serveur context7, clé injectée dans env) et l'allowlist mcp__context7__* une fois activé + clé présente",
-        "stepArchitecture/stepTaskBreakdown utilisent ce résultat quand disponible, sans changer de comportement quand l'intégration est désactivée",
-        "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
-      ],
-      "dependsOn": [
-        "T07",
-        "T08"
-      ],
-      "after": [],
-      "phase": "core",
-      "status": "done",
-      "commitSha": "3efd036fc6529e4e5a23ecec9b8499c04b5f75bb",
-      "worktreeDir": null
-    },
-    {
-      "taskKey": "T10",
-      "position": 9,
-      "title": "EXA (recherche web) sur design_benchmark",
-      "description": "Implémentée avec T09/T11 (même commit). exaMcp(deps) (server/src/pipeline/integrations.ts), même gating que context7Mcp (settings.integrations.exa + EXA_API_KEY). Branché dans stepDesignBenchmark (server/src/pipeline/steps.ts) : les tools WebSearch/WebFetch déjà utilisés sont complétés par mcp__exa__* quand actif, mcpConfig passé à runGenerationStep, exaBlock (server/src/prompts/steps.ts) ajouté au prompt.",
-      "filesHint": [
-        "server/src/pipeline/integrations.ts",
-        "server/src/pipeline/steps.ts",
-        "server/src/prompts/steps.ts"
-      ],
-      "writes": [
-        "server/src/pipeline/integrations.ts",
-        "server/src/pipeline/steps.ts",
-        "server/src/prompts/steps.ts",
-        "server/test/integrations.test.ts",
-        "docs/INTERFACES.md"
-      ],
-      "acceptance": [
-        "exaMcp retourne null par défaut et quand activé sans clé",
-        "exaMcp retourne le mcpConfig EXA et mcp__exa__* une fois activé + clé présente",
-        "stepDesignBenchmark garde WebSearch/WebFetch dans tous les cas, ajoute EXA seulement si actif",
-        "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
-      ],
-      "dependsOn": [
-        "T07",
-        "T08"
-      ],
-      "after": [],
-      "phase": "core",
-      "status": "done",
-      "commitSha": "3efd036fc6529e4e5a23ecec9b8499c04b5f75bb",
-      "worktreeDir": null
-    },
-    {
-      "taskKey": "T11",
-      "position": 10,
-      "title": "Mémoire persistante (mem0 ou supermemory) en cadrage",
-      "description": "Implémentée avec T09/T10 (même commit). memoryMcp(deps) (server/src/pipeline/integrations.ts) : settings.integrations.memoryProvider ('none'|'mem0'|'supermemory', un seul actif à la fois — jamais les deux ensemble) + clé correspondante (MEM0_API_KEY ou SUPERMEMORY_API_KEY) dans <dataDir>/.env. Branché dans ChatService.runCadrageTurn (server/src/cadrage/chatService.ts) : remplace tools:'none' par l'allowlist du provider actif, passe mcpConfig, ajoute memoryBlock (server/src/prompts/steps.ts) au system prompt pour rappeler/enregistrer les préférences utilisateur d'un projet à l'autre.",
-      "filesHint": [
-        "server/src/pipeline/integrations.ts",
-        "server/src/cadrage/chatService.ts",
-        "server/src/prompts/steps.ts"
-      ],
-      "writes": [
-        "server/src/pipeline/integrations.ts",
-        "server/src/cadrage/chatService.ts",
-        "server/src/prompts/steps.ts",
-        "server/test/integrations.test.ts",
-        "server/test/cadrageMemory.test.ts",
-        "docs/INTERFACES.md"
-      ],
-      "acceptance": [
-        "memoryMcp retourne null par défaut, quand provider='none', et quand un provider est choisi sans clé enregistrée",
-        "memoryMcp retourne le mcpConfig du SEUL provider choisi (jamais mem0 et supermemory en même temps)",
-        "runCadrageTurn envoie tools:'none' et aucun mcpConfig au runner quand la mémoire est désactivée (non-régression)",
-        "runCadrageTurn envoie l'allowlist mcp__<provider>__* et le mcpConfig scopé quand la mémoire est activée + clé présente",
-        "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
-      ],
-      "dependsOn": [
-        "T07",
-        "T08"
-      ],
-      "after": [],
-      "phase": "core",
-      "status": "done",
-      "commitSha": "3efd036fc6529e4e5a23ecec9b8499c04b5f75bb",
-      "worktreeDir": null
-    },
-    {
-      "taskKey": "T12",
-      "position": 11,
-      "title": "Bundle de skills officiels dans chaque workspace généré",
-      "description": "Créer server/assets/skills/ avec un jeu curé de skills statiques (security-review, webapp-testing, code-simplify — un dossier par skill avec SKILL.md, frontmatter name/description). Ajouter WorkspaceManager.writeBundledSkills(workspace) (server/src/pipeline/workspace.ts, pattern writeDesignReference) qui copie ce bundle vers .claude/skills/ du workspace et ajoute un marqueur idempotent dans CLAUDE.md listant les skills disponibles. Appeler cette méthode depuis WorkspaceManager.create (nouveau projet) et depuis SpecService.reopen (server/src/cadrage/specService.ts, itération d'amélioration) pour que les projets réouverts profitent aussi d'un bundle à jour. Aucune clé, aucun réseau, actif par défaut : les sessions passent déjà --setting-sources project,local donc les skills sont automatiquement disponibles pour les étapes outillées.",
-      "filesHint": [
-        "server/assets/skills/security-review/SKILL.md",
-        "server/assets/skills/webapp-testing/SKILL.md",
-        "server/assets/skills/code-simplify/SKILL.md",
-        "server/src/pipeline/workspace.ts",
-        "server/src/cadrage/specService.ts"
-      ],
-      "writes": [
-        "server/assets/skills/security-review/SKILL.md",
-        "server/assets/skills/webapp-testing/SKILL.md",
-        "server/assets/skills/code-simplify/SKILL.md",
-        "server/src/pipeline/workspace.ts",
-        "server/src/cadrage/specService.ts",
-        "server/test/bundledSkills.test.ts",
-        "docs/ARCHITECTURE.md"
-      ],
-      "acceptance": [
-        "Un nouveau projet créé (WorkspaceManager.create) a .claude/skills/{security-review,webapp-testing,code-simplify}/SKILL.md dans son workspace",
-        "CLAUDE.md du workspace référence les skills disponibles, sans dupliquer la section à un second appel",
-        "Une réouverture (reopen) rafraîchit le bundle sans casser le test d'itération existant (scaffold toujours sauté, tâches déjà ajoutées inchangées)",
-        "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
-      ],
-      "dependsOn": [],
-      "after": [],
-      "phase": "core",
-      "status": "done",
-      "commitSha": "773e493c1274ddb6b75f2a965c2f9eb80949258f",
-      "worktreeDir": null
-    },
-    {
-      "taskKey": "T13",
-      "position": 12,
-      "title": "Extraction texte des PDF joints aux issues (« pdfinspector »), sans MCP",
-      "description": "Ajouter server/src/github/pdfInspector.ts (extractPdfText(filePath), dépendance pdf-parse) qui extrait le texte d'un PDF local, borné à 4000 caractères, ne lève jamais (retourne null sur tout échec : fichier absent, PDF corrompu/scanné/chiffré). Brancher dans server/src/github/issueAssets.ts : downloadIssueAssets appelle extractPdfText après téléchargement d'une pièce jointe application/pdf et l'attache au nouveau champ optionnel AssetResult.textExcerpt. server/src/github/issuePoller.ts (buildIssueRequest, fonction pure) inclut ce texte dans le bloc « Pièces jointes » transmis au cadrage/SPEC, explicitement marqué non fiable (même statut que le reste du corps de l'issue, cf. note sécurité en tête du fichier). Aucun MCP, aucune clé, aucun appel réseau supplémentaire.",
-      "filesHint": [
-        "server/src/github/pdfInspector.ts",
-        "server/src/github/issueAssets.ts",
-        "server/src/github/issuePoller.ts"
-      ],
-      "writes": [
-        "server/src/github/pdfInspector.ts",
-        "server/src/github/issueAssets.ts",
-        "server/src/github/issuePoller.ts",
-        "server/fixtures/pdf/hello.pdf",
-        "server/test/pdfInspector.test.ts",
-        "server/test/issueAssets.test.ts",
-        "server/test/issuePoller.test.ts",
-        "docs/INTERFACES.md",
-        "server/package.json"
-      ],
-      "acceptance": [
-        "extractPdfText retourne le texte d'un PDF valide et null pour un fichier absent ou corrompu, sans jamais lever",
-        "Une pièce jointe application/pdf téléchargée par downloadIssueAssets porte un textExcerpt non vide quand l'extraction réussit ; les autres types de pièces jointes n'ont jamais ce champ",
-        "buildIssueRequest inclut le texte extrait dans le bloc Pièces jointes, marqué explicitement non fiable",
-        "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
-      ],
-      "dependsOn": [],
-      "after": [],
-      "phase": "core",
-      "status": "done",
-      "commitSha": "767faa3c9fdba52000fd9a116dee9b9c90ac1a86",
-      "worktreeDir": null
-    },
-    {
-      "taskKey": "T14",
-      "position": 13,
-      "title": "QA visuelle headless (remplace l'extension Chrome) sur test_hardening/feature_check",
-      "description": "L'extension claude-in-chrome (MCP navigateur interactif) est incompatible avec des sessions claude -p spawnées sans surveillance humaine sur un serveur headless. Réinterprétation retenue avec @UsrRed : étendre le Playwright déjà utilisé en test_hardening (T03) pour capturer des screenshots (happy path + cas d'erreur) sous docs/qa/screenshots/ (server/src/prompts/steps.ts, testHardeningPrompt). Étendre FeatureAuditItemZ/FEATURE_AUDIT_JSON_SCHEMA (server/src/prompts/schemas.ts) d'un champ optionnel screenshots: string[] ; featureAuditPrompt instruit l'audit à utiliser ces captures comme preuve visuelle pour les fonctionnalités UI et à les lister. docs/FEATURE_AUDIT.md (server/src/pipeline/steps.ts, stepFeatureCheck) gagne une colonne Captures. docs/SPEC.md documente explicitement pourquoi claude-in-chrome n'est pas utilisé tel quel.",
-      "filesHint": [
-        "server/src/prompts/steps.ts",
-        "server/src/prompts/schemas.ts",
-        "server/src/pipeline/steps.ts",
-        "docs/SPEC.md"
-      ],
-      "writes": [
-        "server/src/prompts/steps.ts",
-        "server/src/prompts/schemas.ts",
-        "server/src/pipeline/steps.ts",
-        "server/test/testHardeningPrompt.test.ts",
-        "server/test/visualQa.test.ts",
-        "docs/SPEC.md"
-      ],
-      "acceptance": [
-        "testHardeningPrompt instruit explicitement la capture de screenshots headless (happy path + erreur) sous docs/qa/screenshots/",
-        "FeatureAuditZ accepte un champ screenshots optionnel par fonctionnalité sans le rendre obligatoire (rétro-compatible avec un audit qui ne le fournit pas)",
-        "featureAuditPrompt mentionne explicitement d'utiliser docs/qa/screenshots/ comme preuve visuelle",
-        "docs/FEATURE_AUDIT.md liste les captures par fonctionnalité",
-        "docs/SPEC.md explique pourquoi claude-in-chrome n'est pas utilisé dans le pipeline headless",
-        "La suite de tests server passe en entier (npm test) et npm run typecheck est clean"
-      ],
-      "dependsOn": [],
-      "after": [],
-      "phase": "core",
-      "status": "done",
-      "commitSha": "14fc2a8f0bfc03b92726d96b8ae6bebaa2f0e519",
-      "worktreeDir": null
-    },
-    {
-      "taskKey": "T15",
-      "position": 14,
       "title": "Gérer l'échec de push git non-fast-forward dans generate-ci/push GitHub",
       "description": "Dans le service GitHub qui exécute `git push origin HEAD` (utilisé par `POST /api/projects/:id/github/generate-ci` et `POST /api/projects/:id/github/push`), intercepter l'échec spécifique \"non-fast-forward\" (stderr contenant `[rejected]` + `non-fast-forward` ou message \"Updates were rejected because the tip of your current branch is behind\"). Sur cette erreur précise: exécuter `git fetch origin` puis `git merge --no-edit origin/<branche-courante>` (ou pull équivalent) dans le workspace du projet, puis retenter `git push origin HEAD` une seule fois. Si le merge automatique réussit et le push repasse, l'opération se termine normalement (pas d'erreur remontée). Si le merge produit des conflits, ne pas lever la stack trace brute Node: renvoyer une erreur HTTP claire et actionnable (ex: \"Le dépôt distant a des changements en conflit avec le workspace local, résolution manuelle nécessaire\") et journaliser l'échec via le mécanisme d'événements existant (`app.log`/erreur projet). Ne pas implémenter de résolution de conflit assistée par Claude (hors périmètre 30 min) — se limiter au cas fast-forward automatique + message d'erreur propre sinon.",
       "filesHint": [
@@ -461,8 +181,8 @@
       "worktreeDir": null
     },
     {
-      "taskKey": "T16",
-      "position": 15,
+      "taskKey": "T08",
+      "position": 7,
       "title": "generate-ci: programmer la génération si aucun token GitHub n'est disponible",
       "description": "Actuellement, POST /projects/:id/github/generate-ci échoue si aucun token GitHub n'est configuré/lié pour le projet. Modifier ce handler (server/src/http/routes/github.ts) et le service GitHub associé (GithubService) pour que, en l'absence de token, la demande de génération de CI soit persistée comme en attente au lieu d'échouer (ex. flag sur le projet ou entrée dédiée), et que la réponse indique un statut 'queued' plutôt qu'une erreur. Réutiliser le flux existant déclenché après liaison GitHub (POST /github/link) ou l'auto-mode (PATCH /projects/:id/github/auto-mode) pour déclencher automatiquement la génération du CI en attente dès qu'un token devient disponible pour ce projet, sans nouvel appel manuel à generate-ci. Émettre l'événement approprié pour informer le client du changement de statut.",
       "filesHint": [
@@ -489,8 +209,8 @@
       "worktreeDir": null
     },
     {
-      "taskKey": "T17",
-      "position": 16,
+      "taskKey": "T09",
+      "position": 8,
       "title": "Limiter la liste GitHub auto à 3 éléments triés par priorité, avec détail complet accessible",
       "description": "Dans le composant frontend qui affiche les issues/éléments gérés par le mode GitHub auto (alimenté par GET /api/issues), limiter l'affichage par défaut aux 3 derniers éléments, triés par priorité : d'abord ceux en cours de traitement, puis ceux en file d'attente, puis les corrigés/terminés (ordre décroissant de récence au sein de chaque groupe). Ajouter un moyen d'afficher la liste complète en détail (bouton \"voir plus\" ou lien vers vue détaillée), sans changer le contrat de l'API GET /api/issues (tri/troncature côté client uniquement). Localiser le composant concerné via docs/ARCHITECTURE.md (section web/frontend GitHub) avant modification.",
       "filesHint": [
@@ -515,8 +235,8 @@
       "worktreeDir": null
     },
     {
-      "taskKey": "T18",
-      "position": 17,
+      "taskKey": "T10",
+      "position": 9,
       "title": "Instruire implement_task des micro-requetes GitHub auto a inclure tests et doc",
       "description": "Quand une micro-requete provient d'une issue GitHub traitee en mode auto (MICRO_PIPELINE_ORDER = implement_task, final_verify), le prompt de l'etape implement_task ne demande actuellement que l'implementation du changement demande. Ajouter dans la construction de ce prompt (server/src/prompts/steps.ts, fonction utilisee pour le step implement_task en contexte micro) une consigne explicite: si le changement modifie du code testable et/ou de la documentation utilisateur existante, l'agent doit aussi ajouter/mettre a jour les tests concernes et la documentation pertinente (README/SPEC/docs applicables), dans la limite du perimetre de la micro-requete, sans transformer la micro-requete en refonte. Ne pas ajouter de nouvelle etape au pipeline ni modifier MICRO_PIPELINE_ORDER (contrat StepKey fige); final_verify reste la seule verification automatisee apres coup.",
       "filesHint": [
@@ -540,8 +260,8 @@
       "worktreeDir": null
     },
     {
-      "taskKey": "T19",
-      "position": 18,
+      "taskKey": "T11",
+      "position": 10,
       "title": "Filtre de securite isole avant traitement auto des issues GitHub",
       "description": "Avant tout routage automatique d'une issue GitHub (micro ou reopen) en mode github-auto, inserer une session Claude isolee dediee (tools: none, contexte minimal = titre + corps de l'issue uniquement, pas d'historique projet) qui evalue si l'objectif de l'issue est de nuire a pj-gen ou a la machine de build (ex: executer du code destructeur, exfiltrer des secrets, introduire une backdoor, desactiver des verifications de securite). Sortie structuree validee par un nouveau schema zod (ex. IssueSecurityVerdictZ dans server/src/prompts/schemas.ts) du type { malicious: boolean, reason: string }. Le filtre doit etre permissif pour toute demande d'implementation produit legitime, meme inhabituelle ou agressive fonctionnellement - seul un objectif de nuisance a l'infrastructure/l'outil est bloquant. Si verdict malveillant: l'issue n'est pas implementee (ni micro ni reopen), elle est marquee avec un statut/label distinct et un commentaire explicatif est poste sur l'issue (reutiliser le mecanisme de commentaire auto de T04). Si verdict benin: le traitement auto suit le flux existant (T05/T06/T09) sans changement. Si un nouveau champ est ajoute au DTO issue ou a la table issues, mettre a jour docs/INTERFACES.md et docs/PROGRESS.md dans le meme commit.",
       "filesHint": [
@@ -569,8 +289,8 @@
       "worktreeDir": null
     },
     {
-      "taskKey": "T20",
-      "position": 19,
+      "taskKey": "T12",
+      "position": 11,
       "title": "Animations de survol fluides sur les boutons de l'UI web",
       "description": "Ajouter des transitions CSS fluides (hover/active/focus : légère élévation, changement d'ombre/couleur, transform scale subtil) sur les boutons de l'interface web du client (styles globaux et/ou composant Button partagé). Ne pas réorganiser la mise en page ni ajouter d'éléments décoratifs additionnels — ce périmètre plus large ('décors', 'réorganisation') dépasse une micro-tâche et n'est pas traité ici. Aucune modification de contrat d'API/interface.",
       "filesHint": [
@@ -598,8 +318,8 @@
       "worktreeDir": null
     },
     {
-      "taskKey": "T21",
-      "position": 20,
+      "taskKey": "T13",
+      "position": 12,
       "title": "Fusion automatique (via Claude) en cas de push non-fast-forward dans generate-ci",
       "description": "Le flux POST /projects/:id/github/generate-ci écrit le workflow CI puis exécute `git push origin HEAD` dans le workspace du projet. Quand le dépôt distant a divergé (commits distants absents localement), ce push échoue avec 'non-fast-forward' et l'issue GitHub liée reste bloquée avec un message générique ('résolution manuelle nécessaire'), sans tentative de résolution automatique — contrairement à ce que prévoyait T07 pour d'autres chemins de push.\n\nAjouter, dans la logique de push utilisée par generate-ci (probable helper partagé avec le push GitHub général, à localiser via docs/ARCHITECTURE.md), une gestion spécifique du cas non-fast-forward : avant d'abandonner, faire un `git fetch` + tentative de `git merge`/rebase de la branche distante dans le workspace, puis retenter le push. Si la fusion produit des conflits, lancer une session Claude dédiée (cwd = workspace du projet, outils activés) chargée de résoudre les conflits et de committer, puis retenter le push une seule fois. Si la fusion automatique (avec ou sans Claude) échoue toujours, conserver le comportement actuel de repli (commentaire GitHub explicatif + statut bloqué), en gardant un message clair pour l'utilisateur.\n\nNe pas modifier les contrats documentés dans docs/INTERFACES.md (la réponse de la route generate-ci reste `{ ok: true, status: 'queued' | 'generated' }`); si un nouveau statut ou champ interne est introduit, le documenter dans docs/INTERFACES.md et docs/PROGRESS.md dans le même commit.",
       "filesHint": [
@@ -626,8 +346,8 @@
       "worktreeDir": null
     },
     {
-      "taskKey": "T22",
-      "position": 21,
+      "taskKey": "T14",
+      "position": 13,
       "title": "Ordre de priorité correct dans la liste réduite des issues GitHub auto",
       "description": "Ajuster le tri de la liste réduite (3 éléments) des issues GitHub gérées en auto pour respecter l'ordre de priorité: 1) en cours de traitement (fixing, ci_running), 2) en file d'attente (queued, pending), 3) corrigées (fixed) en dernier. Le détail complet (liste non tronquée) reste accessible via la vue détaillée existante. Vérifier la logique de tri/limite déjà en place (T09) côté route GET /issues (server/src/http/routes/github.ts) et/ou côté composant web affichant la liste réduite, et corriger l'ordre si l'implémentation actuelle ne respecte pas exactement cette priorité (en_cours > en_file > corrigé).",
       "filesHint": [
@@ -651,8 +371,8 @@
       "worktreeDir": null
     },
     {
-      "taskKey": "T23",
-      "position": 22,
+      "taskKey": "T15",
+      "position": 14,
       "title": "Clarifier les critères du filtre de sécurité des issues GitHub (T11)",
       "description": "Affiner le prompt isolé du filtre de sécurité des issues (issueSecurityPrompt) utilisé par IssuePoller.checkIssueSecurity pour préciser explicitement ce qui doit être jugé malicious=true : uniquement les demandes visant à nuire à pj-gen lui-même, à la machine/hôte de build, à introduire une backdoor, exfiltrer des secrets/identifiants, ou saboter le pipeline de build/déploiement. Préciser explicitement que des demandes de fonctionnalités légitimes pour l'application générée (même inhabituelles, agressives en scope, ou touchant à la sécurité applicative comme auth/permissions/scans) ne doivent PAS être marquées comme malveillantes tant qu'elles ne ciblent pas le pc de build ou pj-gen lui-même. Ne pas modifier le schéma IssueSecurityVerdictZ/ISSUE_SECURITY_JSON_SCHEMA (contrat inchangé), seulement le texte d'instruction envoyé au modèle.",
       "filesHint": [
@@ -676,8 +396,8 @@
       "worktreeDir": null
     },
     {
-      "taskKey": "T24",
-      "position": 23,
+      "taskKey": "T16",
+      "position": 15,
       "title": "Polish visuel : décor et transitions fluides sur les cartes/panneaux de l'UI web",
       "description": "Étendre le durcissement visuel déjà fait sur les boutons (T12) au reste de l'interface web : ajouter un léger fond décoratif (dégradé subtil / formes discrètes) sur la page principale, et appliquer des transitions fluides (transform/box-shadow, ~150-200ms ease) aux cartes de projet et panneaux au survol/focus, en cohérence avec le thème existant. Ne pas changer la structure des composants ni les routes/appels API — uniquement du CSS/styles (localiser les fichiers de style du client via docs/ARCHITECTURE.md, ex. styles globaux et composants carte/panneau du dashboard).",
       "filesHint": [
@@ -697,6 +417,34 @@
       "phase": "core",
       "status": "done",
       "commitSha": "52fce1b7aad48bb39c148922dcc2681c952a4a81",
+      "worktreeDir": null
+    },
+    {
+      "taskKey": "T17",
+      "position": 16,
+      "title": "Réutiliser la résolution auto de conflit git dans generate-ci",
+      "description": "Le endpoint POST /api/projects/:id/github/generate-ci pousse le workflow CI généré via un `git push origin HEAD` brut qui plante avec une erreur non gérée (\"Command failed: git push origin HEAD ... rejected non-fast-forward\") quand le dépôt distant a divergé — l'utilisateur voit une stack trace brute au lieu d'une résolution automatique. Les routes github/push (T07) et generate-ci (T13, doc précédente) ont déjà une logique de fusion automatique via Claude en cas de rejet non-fast-forward ; localiser le point d'appel du push spécifique à generate-ci (probablement dans le handler de la route generate-ci, server/src/http/routes/github.ts, ou un service github dédié — voir docs/ARCHITECTURE.md pour le chemin exact) et le faire passer par le même helper de push-avec-fusion-auto (retry après merge via Claude) plutôt que par un appel direct à `git push origin HEAD` non protégé. En cas d'échec persistant après tentative de fusion, retourner/logguer une erreur structurée et un commentaire GitHub explicite au lieu de laisser remonter l'exception brute.",
+      "filesHint": [
+        "server/src/http/routes/github.ts",
+        "docs/ARCHITECTURE.md",
+        "docs/INTERFACES.md"
+      ],
+      "writes": [
+        "server/src/http/routes/github.ts",
+        "docs/ARCHITECTURE.md",
+        "docs/INTERFACES.md"
+      ],
+      "acceptance": [
+        "Sur un projet dont le dépôt GitHub distant a divergé (commits non présents en local), déclencher generate-ci ne fait plus remonter une erreur brute type 'Command failed: git push origin HEAD ... rejected non-fast-forward' ; une tentative de fusion automatique via Claude est effectuée comme pour la route github/push existante",
+        "Si la fusion automatique réussit, generate-ci se termine normalement (status 'generated', workflow poussé)",
+        "Si la fusion échoue malgré la tentative, la réponse/l'erreur exposée à l'utilisateur (ou le commentaire GitHub posté) est un message clair et non une trace d'exception Node brute",
+        "Le comportement existant de la route github/push face à ce même type de conflit n'est pas modifié (non-régression)"
+      ],
+      "dependsOn": [],
+      "after": [],
+      "phase": "core",
+      "status": "pending",
+      "commitSha": null,
       "worktreeDir": null
     }
   ]
