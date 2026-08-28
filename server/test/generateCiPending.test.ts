@@ -143,4 +143,54 @@ describe('generate-ci: push non-fast-forward vers un remote divergé', () => {
     expect(log).toContain('ci: add test workflow');
     expect(fs.existsSync(path.join(workspacePath, '.github/workflows/ci.yml'))).toBe(true);
   });
+
+  it('a genuine merge conflict (T17) is resolved via a Claude session — no raw git error, no manual-resolution message', async () => {
+    // The fake CLI script wears two hats: writing ci.yml on the first ("génération CI") session,
+    // then resolving the merge conflict when GithubService.attemptAutoMergeResolution runs a
+    // second, distinct ('merge_resolve') session.
+    const script = fastScript((spec) => {
+      if (spec.prompt.includes('.github/workflows/ci.yml')) {
+        fs.mkdirSync(path.join(spec.cwd, '.github/workflows'), { recursive: true });
+        fs.writeFileSync(path.join(spec.cwd, '.github/workflows/ci.yml'), 'name: CI\non: [push]\n');
+        return undefined;
+      }
+      if (spec.prompt.includes('Un merge git est en cours')) {
+        fs.writeFileSync(path.join(spec.cwd, '.github/workflows/ci.yml'), 'name: CI (resolved)\non: [push]\n');
+        execFileSync('git', ['add', '-A'], { cwd: spec.cwd, env: { ...process.env, ...IDENTITY } });
+        execFileSync('git', ['commit', '--no-edit'], { cwd: spec.cwd, env: { ...process.env, ...IDENTITY } });
+        return { result: { outcome: 'success' as const, resultText: 'conflit résolu (simulation)' } };
+      }
+      return undefined;
+    });
+    const { c, base } = await testContainer({ script });
+    cRef = c;
+    const id = 'ci-conflict';
+    const workspacePath = await c.ws.create(id, id);
+    c.repos.projects.insert({ id, slug: id, title: id, model: null, workspacePath, initialPrompt: 'x' });
+    c.repos.projects.patch(id, { github_repo: 'someone/repo' });
+
+    const remoteDir = path.join(base, 'remote-conflict.git');
+    fs.mkdirSync(remoteDir, { recursive: true });
+    git(remoteDir, ['init', '--bare', '-b', 'main']);
+    git(workspacePath, ['remote', 'add', 'origin', remoteDir]);
+    git(workspacePath, ['push', 'origin', 'HEAD']);
+
+    // Remote gains a commit on .github/workflows/ci.yml — the same path the CI-generation
+    // session writes to — so the eventual merge is a genuine, textual conflict.
+    const otherClone = path.join(base, 'other-clone-conflict');
+    git(base, ['clone', remoteDir, otherClone]);
+    fs.mkdirSync(path.join(otherClone, '.github/workflows'), { recursive: true });
+    fs.writeFileSync(path.join(otherClone, '.github/workflows/ci.yml'), 'name: pre-existing remote CI\non: [push]\n');
+    git(otherClone, ['add', '-A']);
+    git(otherClone, ['commit', '-m', 'remote: add its own ci.yml']);
+    git(otherClone, ['push', 'origin', 'HEAD']);
+
+    await expect(c.github.generateCi(id)).resolves.toEqual({ status: 'generated' });
+
+    // Resolved via the Claude session, not left mid-merge, not a plain "résolution manuelle" bail-out.
+    expect(fs.readFileSync(path.join(workspacePath, '.github/workflows/ci.yml'), 'utf8')).toBe('name: CI (resolved)\non: [push]\n');
+    expect(fs.existsSync(path.join(workspacePath, '.git', 'MERGE_HEAD'))).toBe(false);
+    const log = git(workspacePath, ['log', '--oneline', 'origin/main']);
+    expect(log).toContain('remote: add its own ci.yml');
+  });
 });

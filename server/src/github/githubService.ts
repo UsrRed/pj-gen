@@ -387,7 +387,10 @@ export class GithubService {
       }
       await ws.commitAll(project.workspace_path, 'ci: add test workflow');
     });
-    await this.push(projectId);
+    // autoResolve: true — same recovery path as the auto-issue flow (attemptAutoMergeResolution):
+    // generate-ci runs unattended (manual button or auto-fire on link), so a genuine merge
+    // conflict must not just surface a "résolution manuelle nécessaire" error with no retry path.
+    await this.push(projectId, undefined, { autoResolve: true });
   }
 
   /**
