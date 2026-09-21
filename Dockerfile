@@ -19,7 +19,7 @@ RUN npm run build
 #    claude (CLI headless piloté via l'abonnement OAuth, jamais de clé API) ──
 FROM node:22-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      git ca-certificates curl gnupg \
+      git ca-certificates curl gnupg wget \
     && mkdir -p -m 755 /etc/apt/keyrings \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
