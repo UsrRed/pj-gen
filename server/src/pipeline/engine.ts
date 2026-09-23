@@ -30,8 +30,15 @@ export type EngineOutcome = 'completed' | 'parked' | 'paused_user' | 'canceled' 
  * task) either because `final_verify` itself failed — the change reached beyond what one task
  * could land — or because the original request already carried full-scope signals (T05's
  * `classifyIssueScope`, reused here for pipeline-detected scope instead of issue-text routing).
+ *
+ * A missing `stack` (e.g. an imported project whose one-shot adoption analysis failed or was
+ * never run) always escalates too, regardless of step/request: the micro pipeline has no step
+ * that can (re)derive it, so every future micro request on that project would otherwise fail
+ * with the same "stack inconnue" forever. `architecture`, which the full pipeline runs on
+ * reopen, is what (re)computes and persists the stack — escalating is what actually unblocks it.
  */
-export function shouldEscalateMicro(stepKey: StepKey, request: string): boolean {
+export function shouldEscalateMicro(stepKey: StepKey, request: string, failureMessage?: string | null): boolean {
+  if (failureMessage?.includes('stack inconnue')) return true;
   return stepKey === 'final_verify' || classifyIssueScope(request) === 'full';
 }
 
@@ -135,7 +142,7 @@ export class Engine {
       if (flow.status === 'halted') return this.finishHalted(projectId, flow.mode);
       this.sm.tryTransition(projectId, ['building'], 'failed', { error_message: `${stepKey}: ${flow.message}` });
       const settled = this.settleMicroRequests(projectId);
-      if (isMicro && (await this.tryEscalateMicro(projectId, stepKey, settled))) return 'escalated';
+      if (isMicro && (await this.tryEscalateMicro(projectId, stepKey, settled, flow.message))) return 'escalated';
       this.emitProject(projectId);
       return 'failed';
     }
@@ -179,15 +186,23 @@ export class Engine {
    * large-scope GitHub issues) instead of leaving it stuck in `failed`. Returns whether an
    * escalation happened (the caller must not also report the run as a plain failure).
    */
-  private async tryEscalateMicro(projectId: string, stepKey: StepKey, settled: MicroRequestRow[]): Promise<boolean> {
+  private async tryEscalateMicro(
+    projectId: string,
+    stepKey: StepKey,
+    settled: MicroRequestRow[],
+    failureMessage?: string | null,
+  ): Promise<boolean> {
     if (!this.spec) return false;
-    const oversized = settled.filter((r) => r.status === 'failed' && shouldEscalateMicro(stepKey, r.request));
+    const oversized = settled.filter((r) => r.status === 'failed' && shouldEscalateMicro(stepKey, r.request, failureMessage));
     if (!oversized.length) return false;
 
+    const reason = failureMessage?.includes('stack inconnue')
+      ? `escaladé vers le pipeline complet (${stepKey}: stack du projet inconnue, ré-analyse nécessaire)`
+      : `escaladé vers le pipeline complet (${stepKey}: portée dépassant une micro-modification)`;
     for (const r of oversized) {
       const patched = this.deps.repos.micro.patch(r.id, {
         status: 'escalated',
-        error_message: `escaladé vers le pipeline complet (${stepKey}: portée dépassant une micro-modification)`,
+        error_message: reason,
       });
       this.deps.bus.emit('micro.updated', projectId, { request: toMicroDto(patched) });
     }

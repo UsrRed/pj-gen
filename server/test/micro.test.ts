@@ -187,6 +187,11 @@ describe('shouldEscalateMicro (T06 scope decision)', () => {
   it('implement_task failing on a request already carrying full-scope signals escalates too', () => {
     expect(shouldEscalateMicro('implement_task', 'Ajoute une nouvelle fonctionnalité de recherche par tags.')).toBe(true);
   });
+
+  it('a missing stack always escalates, even on an ordinary small request, so a project imported without one never gets stuck forever', () => {
+    expect(shouldEscalateMicro('implement_task', 'Corrige la faute de frappe dans le libellé.', 'implement_task: stack inconnue')).toBe(true);
+    expect(shouldEscalateMicro('final_verify', 'Corrige la faute de frappe dans le libellé.', 'stack inconnue (architecture manquante)')).toBe(true);
+  });
 });
 
 describe('micro pipeline failure escalates to the full pipeline (T06)', () => {
