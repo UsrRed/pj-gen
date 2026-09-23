@@ -82,6 +82,27 @@ export class GithubService {
     return stdout;
   }
 
+  private httpsProtocolEnsured = false;
+  /**
+   * gh defaults to the ssh git protocol (set in ~/.config/gh/hosts.yml at
+   * `gh auth login` time, overriding the global config even if that one is
+   * https) — this image has no ssh client, so any git-network gh call
+   * (clone, `repo create --push`) fails with "cannot run ssh: No such file
+   * or directory" while pure API calls (status, listRemoteRepos) keep
+   * working fine, since only those go over ssh. Force https at both scopes;
+   * memoized since it only needs to happen once per process.
+   */
+  private async ensureHttpsProtocol(): Promise<void> {
+    if (this.httpsProtocolEnsured) return;
+    this.httpsProtocolEnsured = true;
+    try {
+      await this.gh(['config', 'set', 'git_protocol', 'https']);
+      await this.gh(['config', 'set', '-h', 'github.com', 'git_protocol', 'https']);
+    } catch {
+      /* best-effort — a real auth/gh problem surfaces at the call site anyway */
+    }
+  }
+
   async status(force = false): Promise<GithubStatusDto> {
     if (!force && this.statusCache && Date.now() - this.statusCache.at < STATUS_CACHE_MS) return this.statusCache.value;
     let value: GithubStatusDto;
@@ -122,6 +143,7 @@ export class GithubService {
 
       // Sweep uncommitted artifacts first (safe: no session is working in this workspace).
       await ws.commitAll(project.workspace_path, 'chore: pre-publish');
+      await this.ensureHttpsProtocol();
       const out = await this.gh(
         ['repo', 'create', project.slug, isPrivate ? '--private' : '--public', '--source', '.', '--push'],
         { cwd: project.workspace_path, timeoutMs: 120_000 }
@@ -405,6 +427,7 @@ export class GithubService {
     if (!status.authOk) throw conflict('GitHub CLI non connecté');
     if (!/^[\w.-]+\/[\w.-]+$/.test(nameWithOwner)) throw badRequest('Nom de dépôt invalide (attendu: owner/name)');
     if (repos.projects.all().some((p) => p.github_repo === nameWithOwner)) throw conflict('Dépôt déjà cloné');
+    await this.ensureHttpsProtocol();
 
     const repoName = nameWithOwner.split('/')[1];
     let slug = slugify(repoName);
