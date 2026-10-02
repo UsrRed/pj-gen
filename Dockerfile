@@ -20,6 +20,7 @@ RUN npm run build
 FROM node:22-bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git ca-certificates curl gnupg wget \
+      python3 python3-pip python3-venv python-is-python3 \
     && mkdir -p -m 755 /etc/apt/keyrings \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg \
     && chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
@@ -42,6 +43,11 @@ COPY --from=builder /app /app
 RUN mkdir -p /root/.pj-gen /root/pj-workspace /root/.claude /root/.config/gh \
     && chown -R node:node /root
 ENV HOME=/root
+# Projets Python (ex. immo-paper : backend FastAPI, vérif `python -m pytest`) :
+# sans interpréteur, chaque implement_task échouait sur « python: command not
+# found ». pip s'installe dans le site utilisateur (~/.local, uid node) ;
+# PEP 668 le refuse sur Debian sans ce drapeau — le conteneur est jetable.
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
 USER node
 
 ENV PJGEN_HOST=127.0.0.1
