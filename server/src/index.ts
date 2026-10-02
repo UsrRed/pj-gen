@@ -21,6 +21,15 @@ async function main(): Promise<void> {
     c.bus.emit('boot.notice', null, { level: 'warn', message: c.caps.versionWarning });
   }
 
+  // claude refuses --dangerously-skip-permissions under uid 0: every tool-enabled session
+  // (import analysis, scaffold, implement_task…) would fail and leave projects stuck in `failed`.
+  if (!config.fakeCli && process.getuid?.() === 0) {
+    c.bus.emit('boot.notice', null, {
+      level: 'error',
+      message: 'pj-gen tourne en root : claude refuse --dangerously-skip-permissions, toute étape avec outils échouera — lancer le serveur sous un utilisateur non-root',
+    });
+  }
+
   const auth = config.fakeCli ? { ok: true, detail: 'simulation', checkedAt: Date.now() } : await checkAuth(config.claudeBin);
   c.scheduler.setAuth(auth);
   const authTimer = setInterval(async () => {

@@ -59,6 +59,8 @@ function emitProject(c: Container, id: string): void {
 
 export function registerProjectRoutes(app: FastifyInstance, c: Container): void {
   const sm = new ProjectStateMachine(c.repos.projects);
+  /** Imported projects whose adoption analysis is being redone by a retry (see /retry). */
+  const reanalyzing = new Set<string>();
 
   app.post('/api/projects', async (req, reply) => {
     const body = CreateZ.parse(req.body);
@@ -226,7 +228,26 @@ export function registerProjectRoutes(app: FastifyInstance, c: Container): void 
   app.post('/api/projects/:id/retry', async (req) => {
     const { id } = req.params as { id: string };
     const row = mustGet(c, id);
-    if (row.status === 'failed') {
+    if (row.status === 'failed' && !row.stack && row.github_repo && row.pipeline_mode === 'micro') {
+      // Imported project whose adoption analysis failed: the micro pipeline has no architecture
+      // step to derive the stack, so re-queueing as-is would fail again on implement_task.
+      // Redo the analysis first (minutes long — in the background), then queue as usual.
+      if (reanalyzing.has(id)) throw conflict('Analyse du dépôt importé déjà en cours');
+      reanalyzing.add(id);
+      void c.github
+        .reanalyzeImport(id)
+        .catch(() => false)
+        .then((ok) => {
+          if (ok) {
+            sm.tryTransition(id, ['failed'], 'queued', { error_message: null, enqueued_at: row.enqueued_at ?? Date.now() });
+            c.scheduler.poke();
+          } else {
+            c.repos.projects.patch(id, { error_message: 'analyse du dépôt importé échouée — stack toujours inconnue (voir PROGRESS.md)' });
+          }
+          emitProject(c, id);
+        })
+        .finally(() => reanalyzing.delete(id));
+    } else if (row.status === 'failed') {
       sm.transitionOr409(id, ['failed'], 'queued', { error_message: null, enqueued_at: row.enqueued_at ?? Date.now() });
       emitProject(c, id);
       c.scheduler.poke();

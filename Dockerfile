@@ -33,6 +33,17 @@ ENV PATH="/root/.local/bin:${PATH}"
 WORKDIR /app
 COPY --from=builder /app /app
 
+# Non-root : claude refuse --dangerously-skip-permissions sous uid 0, et toutes
+# les sessions avec outils (scaffold, implement_task, analyse d'import…)
+# échouaient. On tourne en `node` (uid 1000) mais on garde HOME=/root : les
+# chemins absolus déjà en base (workspace_path), les worktrees git et les
+# volumes montés sous /root restent valides. Les dossiers des volumes sont
+# créés ici au bon propriétaire, qu'un volume neuf hérite à son premier montage.
+RUN mkdir -p /root/.pj-gen /root/pj-workspace /root/.claude /root/.config/gh \
+    && chown -R node:node /root
+ENV HOME=/root
+USER node
+
 ENV PJGEN_HOST=127.0.0.1
 EXPOSE 80
 CMD ["npm", "start"]

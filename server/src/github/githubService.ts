@@ -468,6 +468,15 @@ export class GithubService {
     return repos.projects.byId(id)!;
   }
 
+  /**
+   * Re-runs the adoption analysis of an imported project whose first one failed (stack still
+   * null). Returns whether the stack is now known — the micro pipeline cannot run without it.
+   */
+  async reanalyzeImport(projectId: string): Promise<boolean> {
+    await this.analyzeImport(projectId);
+    return !!this.deps.repos.projects.byId(projectId)?.stack;
+  }
+
   /** Adoption session: reverse-engineer SPEC/ARCHITECTURE/INTERFACES + stack from the cloned code. */
   private async analyzeImport(projectId: string): Promise<void> {
     const { repos, ws, runner, bus } = this.deps;
