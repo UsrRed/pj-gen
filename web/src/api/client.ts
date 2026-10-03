@@ -1,4 +1,4 @@
-import type { AccessDto, AppStateDto, ArtifactNode, GithubRepoView, GithubStatusDto, IssueDto, LanStatusDto, LogLineDto, ModelName, ProjectDetail, ProjectSize, ProjectSummary, QueueSnapshot, QuotaDto, SettingsDto, StatsDto, StepRunDto } from '@pjgen/shared';
+import type { AccessDto, ConsoleStatusDto, AppStateDto, ArtifactNode, GithubRepoView, GithubStatusDto, IssueDto, LanStatusDto, LogLineDto, ModelName, ProjectDetail, ProjectSize, ProjectSummary, QueueSnapshot, QuotaDto, SettingsDto, StatsDto, StepRunDto } from '@pjgen/shared';
 
 export const API_BASE = '';
 
@@ -106,4 +106,12 @@ export const api = {
   addTrustedUser: (login: string) => req<{ users: string[] }>('/api/github/trusted-users', { method: 'POST', body: JSON.stringify({ login }) }),
   removeTrustedUser: (login: string) =>
     req<{ users: string[] }>(`/api/github/trusted-users/${encodeURIComponent(login)}`, { method: 'DELETE', body: '{}' }),
+  consoleStatus: () => req<ConsoleStatusDto>('/api/console'),
+  consoleStart: (cols: number, rows: number) =>
+    req<ConsoleStatusDto>('/api/console/start', { method: 'POST', body: JSON.stringify({ cols, rows }) }),
+  consoleInput: (data: string) => req<{ ok: boolean }>('/api/console/input', { method: 'POST', body: JSON.stringify({ data }) }),
+  consoleResize: (cols: number, rows: number) =>
+    req<{ ok: boolean }>('/api/console/resize', { method: 'POST', body: JSON.stringify({ cols, rows }) }),
+  consoleKill: () => req<{ ok: boolean }>('/api/console/kill', { method: 'POST', body: '{}' }),
+  consoleRecheckAuth: () => req<{ ok: boolean; detail: string; checkedAt: number }>('/api/console/recheck-auth', { method: 'POST', body: '{}' }),
 };

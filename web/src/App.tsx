@@ -9,6 +9,7 @@ import { SettingsPage } from './pages/SettingsPage.js';
 import { StatsPage } from './pages/StatsPage.js';
 import { GithubPage } from './pages/GithubPage.js';
 import { IssuePage } from './pages/IssuePage.js';
+import { ConsolePage } from './pages/ConsolePage.js';
 import { useStore } from './store/useStore.js';
 import { T } from './i18n/fr.js';
 
@@ -85,6 +86,9 @@ function Shell({ children }: { children: React.ReactNode }) {
             <Link to="/github" className="text-zinc-400 hover:text-zinc-100">
               🐙 {T.github}
             </Link>
+            <Link to="/console" className="text-zinc-400 hover:text-zinc-100">
+              ⌨ {T.console}
+            </Link>
             <Link to="/stats" className="text-zinc-400 hover:text-zinc-100">
               📊 {T.stats}
             </Link>
@@ -110,6 +114,7 @@ export function App() {
             <Route path="/projects/:id/issues/:issueId" element={<IssuePage />} />
             <Route path="/github" element={<GithubPage />} />
             <Route path="/stats" element={<StatsPage />} />
+            <Route path="/console" element={<ConsolePage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </ErrorBoundary>

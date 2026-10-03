@@ -6,6 +6,7 @@ import { buildContainer, type Container } from '../src/container.js';
 import type { RunnerFn } from '../src/claude/types.js';
 import { defaultFakeScript, createFakeRunner, type FakeScript } from '../src/claude/fakeRunner.js';
 import type { SendFn } from '../src/core/notifier.js';
+import type { PtySpawn } from '../src/console/consoleService.js';
 
 export function tmpDir(prefix: string): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), `pjgen-${prefix}-`));
@@ -37,13 +38,13 @@ export function fastScript(intercept?: (...args: Parameters<FakeScript>) => Retu
 }
 
 export async function testContainer(
-  opts: { script?: FakeScript; config?: Partial<Config>; notifySend?: SendFn } = {}
+  opts: { script?: FakeScript; config?: Partial<Config>; notifySend?: SendFn; ptySpawn?: PtySpawn } = {}
 ): Promise<{ c: Container; base: string }> {
   const base = tmpDir('t');
   fs.mkdirSync(path.join(base, 'ws'), { recursive: true });
   const config = testConfig(base, opts.config);
   const runner: RunnerFn = createFakeRunner(opts.script ?? fastScript());
-  const c = await buildContainer(config, { runner, notifySend: opts.notifySend });
+  const c = await buildContainer(config, { runner, notifySend: opts.notifySend, ptySpawn: opts.ptySpawn });
   return { c, base };
 }
 

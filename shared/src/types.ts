@@ -223,6 +223,18 @@ export interface LanStatusDto {
   alreadyExposed: boolean;
 }
 
+/** State of the web console (one persistent shell in pj-gen's own environment). */
+export interface ConsoleStatusDto {
+  /** False when the native pty module could not be loaded — `reason` says why. */
+  available: boolean;
+  reason: string | null;
+  running: boolean;
+  pid: number | null;
+  startedAt: number | null;
+  /** Exit code of the last shell, null while running or never started. */
+  exitCode: number | null;
+}
+
 /** Live view of the current subscription rate-limit window. */
 export interface QuotaWindowDto {
   /** Epoch ms when the current window resets (from the stream's rate_limit_event), null if never seen. */

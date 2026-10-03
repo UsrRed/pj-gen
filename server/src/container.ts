@@ -23,6 +23,8 @@ import { Notifier, type SendFn } from './core/notifier.js';
 import { AppRunner } from './preview/appRunner.js';
 import { LanExposure } from './core/lanExposure.js';
 import { SessionPool } from './core/sessionPool.js';
+import { ConsoleService, type PtySpawn } from './console/consoleService.js';
+import { checkAuth } from './claude/capabilities.js';
 
 export interface Container extends CoreDeps {
   db: DB;
@@ -38,6 +40,7 @@ export interface Container extends CoreDeps {
   notifier: Notifier;
   appRunner: AppRunner;
   lan: LanExposure;
+  console: ConsoleService;
   close(): void;
 }
 
@@ -45,6 +48,7 @@ export interface ContainerOverrides {
   runner?: RunnerFn;
   caps?: Capabilities;
   notifySend?: SendFn;
+  ptySpawn?: PtySpawn;
 }
 
 export async function buildContainer(config: Config, overrides: ContainerOverrides = {}): Promise<Container> {
@@ -89,6 +93,14 @@ export async function buildContainer(config: Config, overrides: ContainerOverrid
   const appRunner = new AppRunner(deps);
   appRunner.sweepOrphans();
   const lan = new LanExposure(config.port, config.host);
+  // A shell that ends is usually a finished `claude auth login`: re-check now rather than
+  // waiting for the 6-hourly recheck, so builds stop being refused for a stale "KO".
+  const webConsole = new ConsoleService(config, {
+    spawn: overrides.ptySpawn,
+    onExit: () => {
+      if (!config.fakeCli) void checkAuth(config.claudeBin).then((auth) => scheduler?.setAuth(auth));
+    },
+  });
 
   return {
     ...deps,
@@ -105,7 +117,9 @@ export async function buildContainer(config: Config, overrides: ContainerOverrid
     notifier,
     appRunner,
     lan,
+    console: webConsole,
     close: () => {
+      webConsole.kill();
       issuePoller.stop();
       scheduler?.stop();
       appRunner.stopAll();

@@ -19,14 +19,15 @@ pj-gen/
 │   ├── micro/               MicroService (micro-modifications)
 │   ├── github/               GithubService (gh CLI), IssuePoller, issueAssets
 │   ├── access/               envFile (.env sécurisé, par workspace ET global via dataDir), integrationSecrets, accessTest (SSH/DNS)
-│   ├── preview/               AppRunner (exécute le projet généré)
+│   ├── preview/               AppRunner (exécute le projet généré), PreviewProxy (relais d'aperçu)
+│   ├── console/               ConsoleService (shell persistant node-pty pour l'onglet Console)
 │   └── http/                  app Fastify, routes, SSE
 ├── server/assets/skills/    bundle de skills (issue #8) copié dans .claude/skills/ de chaque workspace généré (WorkspaceManager.writeBundledSkills)
 └── web/src/
     ├── App.tsx               shell + routing (react-router)
     ├── store/useStore.ts      état global zustand (SSE-driven)
     ├── api/client.ts          client REST typé + api/sse.ts (EventSource)
-    ├── pages/                  Dashboard, Project, Settings, Stats, Github, Issue
+    ├── pages/                  Dashboard, Project, Settings, Stats, Github, Issue, Console (xterm.js)
     └── components/             panels (Chat, Pipeline, Artifacts, Deploy, Access, App, Quota…)
 ```
 
@@ -44,8 +45,8 @@ pj-gen/
 
 ## Dépendances réelles
 
-- **Serveur** : `fastify` (+`@fastify/cors`,`@fastify/static`), `better-sqlite3`, `zod`, `@pjgen/shared` (workspace). Dev : `tsx`, `typescript`, `vitest`.
-- **Web** : `react`/`react-dom` 19, `react-router-dom` 7, `zustand` 5, `react-markdown`. Dev : `vite` 7, `@vitejs/plugin-react`, `tailwindcss` 4 (+`@tailwindcss/vite`), `typescript`, `vitest` (+`jsdom`, `@testing-library/react`, `@testing-library/jest-dom`) pour les tests de composants/logique client (`web/test/*.test.{ts,tsx}`).
+- **Serveur** : `fastify` (+`@fastify/cors`,`@fastify/static`), `better-sqlite3`, `node-pty` (natif, compilé dans l'étage builder de l'image), `zod`, `@pjgen/shared` (workspace). Dev : `tsx`, `typescript`, `vitest`.
+- **Web** : `react`/`react-dom` 19, `react-router-dom` 7, `zustand` 5, `react-markdown`, `@xterm/xterm` (+`addon-fit`, `addon-web-links`). Dev : `vite` 7, `@vitejs/plugin-react`, `tailwindcss` 4 (+`@tailwindcss/vite`), `typescript`, `vitest` (+`jsdom`, `@testing-library/react`, `@testing-library/jest-dom`) pour les tests de composants/logique client (`web/test/*.test.{ts,tsx}`).
 - **Racine** : `concurrently` (dev orchestration `dev`/`dev:fake`).
 - Binaires externes invoqués via `execFile`/`spawn` : `claude` (CLI Claude Code), `git`, `gh` (GitHub CLI), `xdg-open` (ouverture dossier hôte, best-effort).
 - Aucune base de données externe : SQLite fichier unique en WAL, migrations versionnées via `PRAGMA user_version` (`db/migrations.ts`, v1→v12).

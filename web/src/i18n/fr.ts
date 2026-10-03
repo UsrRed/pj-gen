@@ -128,7 +128,7 @@ export const T = {
   emptySlot: 'Slot libre',
   quotaBanner: (time: string) => `Quota Claude épuisé — reprise automatique estimée à ${time}`,
   quotaProbe: 'Réessayer maintenant',
-  authBanner: 'Authentification claude invalide — exécute `claude auth login` sur la machine puis redémarre pj-gen.',
+  authBanner: 'Authentification claude invalide — exécute `claude auth login` dans l\'onglet Console, puis « Revérifier l\'auth claude ».',
   tabs: { cadrage: 'Cadrage', pipeline: 'Pipeline', artifacts: 'Artefacts', apercu: 'Aperçu', deploy: 'Déploiement' },
   chatPlaceholder: 'Précisions, réponses aux questions…',
   send: 'Envoyer',
@@ -262,7 +262,7 @@ export const T = {
   // GitHub
   github: 'GitHub',
   ghTitle: 'Dépôts GitHub',
-  ghNotAuth: 'GitHub CLI non connecté — exécute `gh auth login` sur la machine puis actualise.',
+  ghNotAuth: 'GitHub CLI non connecté — exécute `gh auth login` dans l\'onglet Console puis actualise.',
   ghNotInstalled: 'GitHub CLI introuvable — installe `gh` (https://cli.github.com) puis actualise.',
   ghSetupHint: 'À exécuter sur la machine qui héberge pj-gen, puis clique sur « Actualiser » :',
   ghSetupInstallCmd: `# Debian / Ubuntu — installe le GitHub CLI puis connecte-toi
@@ -424,4 +424,19 @@ gh auth login
   sIntegrationKeyPlaceholder: 'Coller la clé…',
   sIntegrationKeySave: 'Enregistrer la clé',
   sIntegrationKeySaved: 'Clé enregistrée ✓',
+  console: 'Console',
+  consoleTitle: 'Console',
+  consoleHint:
+    "Un shell dans l'environnement de pj-gen (même utilisateur, mêmes configurations gh et claude) — pour se réauthentifier quand un jeton expire, sans passer par l'hôte. Le shell survit au changement de page.",
+  consoleRunning: (pid: number | null) => `shell actif${pid ? ` (pid ${pid})` : ''}`,
+  consoleStopped: 'aucun shell',
+  consoleUnavailable: 'indisponible',
+  consoleStart: 'Démarrer',
+  consoleRestart: 'Relancer',
+  consoleKill: 'Fermer le shell',
+  consoleKillConfirm: 'Confirmer la fermeture',
+  consoleExited: (code: number | null) => `[shell terminé${code !== null ? `, code ${code}` : ''}]`,
+  consoleRecheckAuth: "Revérifier l'auth claude",
+  consoleAuthOk: (detail: string) => `✓ claude authentifié${detail ? ` — ${detail}` : ''}`,
+  consoleAuthKo: (detail: string) => `✗ claude non authentifié${detail ? ` — ${detail}` : ''}`,
 };

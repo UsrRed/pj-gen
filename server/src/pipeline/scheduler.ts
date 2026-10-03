@@ -54,7 +54,7 @@ export class Scheduler implements SchedulerHooks {
     if (!auth.ok) {
       this.deps.bus.emit('boot.notice', null, {
         level: 'error',
-        message: `Authentification claude KO (${auth.detail || 'inconnue'}) — exécute \`claude auth login\` puis redémarre pj-gen.`,
+        message: `Authentification claude KO (${auth.detail || 'inconnue'}) — exécute \`claude auth login\` dans l'onglet Console, puis « Revérifier l'auth claude ».`,
       });
     }
     this.emitQuota();
