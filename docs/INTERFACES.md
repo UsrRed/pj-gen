@@ -18,7 +18,7 @@
 
 **Contrôle global** (`control.ts`) : `POST /control/pause-all`, `POST /control/resume-all`, `POST/DELETE /control/cut` (coupe de tokens programmée, `{targetAt, reservePct}`).
 
-**Divers** (`misc.ts`) : `GET /steps/:runId/logs`, `GET /projects/:id/artifacts[/file]`, `POST /projects/:id/open-folder`, `GET/POST /projects/:id/app[/start|/stop]`, `GET/PATCH /settings`, `GET /lan`, `POST /settings/notify-test`, `GET /quota`, `POST /quota/probe`, `GET /stats`, `GET /health`.
+**Divers** (`misc.ts`) : `GET /steps/:runId/logs`, `GET /projects/:id/artifacts[/file]`, `POST /projects/:id/open-folder`, `GET/POST /projects/:id/app[/start|/stop]`, `GET /preview` (`{ port: number|null }` — port public du relais d'aperçu, null si désactivé), `GET/PATCH /settings`, `GET /lan`, `POST /settings/notify-test`, `GET /quota`, `POST /quota/probe`, `GET /stats`, `GET /health`.
 
 **GitHub** (`github.ts`) : `GET /github/status|repos`, `POST /github/clone`, `POST /projects/:id/github/link|push|generate-ci`, `PATCH /projects/:id/github/auto-mode`, `GET /issues`, `POST /issues/:id/decision`, `GET/POST/DELETE /github/trusted-users[/:login]`.
 `POST /projects/:id/github/generate-ci` répond `{ ok: true, status: 'queued' | 'generated' }` : `queued` si le projet n'est pas encore lié à GitHub — la demande est persistée (`projects.github_ci_pending`, exposé au client via `ProjectSummary.githubCiPending`) et se déclenche automatiquement (sans nouvel appel) au prochain `github/link` ou `github/auto-mode` réussi, via `project.updated`; `generated` si le workflow a été écrit et poussé immédiatement.
@@ -77,3 +77,12 @@ type StepFlow = { status: 'ok' } | { status: 'parked' } | { status: 'halted'; mo
 ## Client web (`web/src/api/client.ts`)
 
 Objet `api` unique, typé sur les DTOs `@pjgen/shared`, un endpoint par méthode (ex. `api.createProject`, `api.chat`, `api.micro`, `api.putAccessSecrets`). État global piloté par `store/useStore.ts` (zustand), alimenté par `api/sse.ts` (wrapper `EventSource`) qui applique les payloads d'événements aux slices du store.
+
+## Relais d'aperçu (`preview/previewProxy.ts`)
+
+Second écouteur HTTP, actif seulement si `PJGEN_PREVIEW_PORT` est défini (lié sur `PJGEN_HOST`). `PJGEN_PREVIEW_PUBLIC_PORT` = port vu par le navigateur quand un frontal (tailscale serve…) le publie ailleurs (défaut : `PJGEN_PREVIEW_PORT`). Toute l'origine appartient à l'appli prévisualisée (les serveurs de dev émettent des chemins absolus) ; seules les routes `/__pjgen/*` sont à pj-gen :
+- `GET /__pjgen/preview/:projectId` → cookie `pjgen_preview=p:<id>` + 302 `/` : relaie vers l'URL détectée de l'appli en cours (`AppRunner.state(id).url`), suivie à chaque requête.
+- `GET /__pjgen/port/:n` → cookie `pjgen_preview=port:<n>` + 302 `/` : relaie vers `localhost:<n>` (refusé : le port du relais et celui de pj-gen).
+- `GET /__pjgen/` → page d'index (aperçus en cours, saisie d'un port).
+Requêtes et upgrades (WebSocket HMR) relayés avec `Host`/`Origin` réécrits en `localhost:<port>` (Vite ≥5.4.12 refuse un Host inconnu), `X-Forwarded-Host` conservé, cookie `pjgen_preview` retiré, `Location` absolue vers le serveur de dev rendue relative. Le cookie ne distingue pas les ports : deux onglets sur deux aperçus différents se le partagent, la dernière sélection gagne.
+

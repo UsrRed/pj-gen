@@ -19,9 +19,21 @@ export interface Config {
   /** Static dir of the built web UI (served in prod when present). */
   webDist: string;
   schedulerTickMs: number;
+  /**
+   * Aperçu relay listener (preview/previewProxy.ts), bound on `host`; null = disabled.
+   * `previewPublicPort` is the port browsers reach it on when something (tailscale serve…)
+   * fronts it on another port — defaults to `previewPort`.
+   */
+  previewPort: number | null;
+  previewPublicPort: number | null;
   logFlushMs: number;
   /** Random extra delay added to quota-resume timers (spreads load at reset time). */
   resumeJitterMaxMs: number;
+}
+
+function optionalPort(v: string | undefined): number | null {
+  const n = Number(v);
+  return v && Number.isInteger(n) && n > 0 && n <= 65535 ? n : null;
 }
 
 export function loadConfig(overrides: Partial<Config> = {}): Config {
@@ -41,6 +53,8 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     gitAuthorEmail: 'redefendeur@gmail.com',
     webDist: path.resolve(import.meta.dirname, '../../web/dist'),
     schedulerTickMs: Number(process.env.PJGEN_TICK_MS ?? 30_000),
+    previewPort: optionalPort(process.env.PJGEN_PREVIEW_PORT),
+    previewPublicPort: optionalPort(process.env.PJGEN_PREVIEW_PUBLIC_PORT ?? process.env.PJGEN_PREVIEW_PORT),
     logFlushMs: 250,
     resumeJitterMaxMs: 90_000,
     ...overrides,

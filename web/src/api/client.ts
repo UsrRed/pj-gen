@@ -86,6 +86,7 @@ export const api = {
   appState: (id: string) => req<AppStateDto>(`/api/projects/${id}/app`),
   appStart: (id: string) => req<AppStateDto>(`/api/projects/${id}/app/start`, { method: 'POST', body: '{}' }),
   appStop: (id: string) => req<{ ok: boolean }>(`/api/projects/${id}/app/stop`, { method: 'POST', body: '{}' }),
+  previewInfo: () => req<{ port: number | null }>('/api/preview'),
   githubStatus: (force = false) => req<GithubStatusDto>(`/api/github/status${force ? '?force=1' : ''}`),
   githubRepos: () => req<{ status: GithubStatusDto; repos: GithubRepoView[] }>('/api/github/repos'),
   githubClone: (nameWithOwner: string) =>

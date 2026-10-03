@@ -61,6 +61,15 @@ export class AppRunner {
     return { running: true, url: app.url, startedAt: app.startedAt, lines: app.lines.slice(-RING_MAX) };
   }
 
+  /** Every app currently running, for the preview proxy's index page. */
+  runningApps(): { projectId: string; title: string; url: string | null }[] {
+    return [...this.apps].map(([projectId, app]) => ({
+      projectId,
+      title: this.deps.repos.projects.byId(projectId)?.title ?? projectId,
+      url: app.url,
+    }));
+  }
+
   start(projectId: string): AppStateDto {
     const { repos } = this.deps;
     if (this.apps.has(projectId)) throw new Error('L’application tourne déjà — arrête-la d’abord.');

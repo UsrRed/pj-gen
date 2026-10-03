@@ -4,6 +4,7 @@ import { buildContainer } from './container.js';
 import { createApp } from './http/app.js';
 import { checkAuth } from './claude/capabilities.js';
 import { recoverOnBoot } from './pipeline/recovery.js';
+import { PreviewProxy } from './preview/previewProxy.js';
 
 const AUTH_RECHECK_MS = 6 * 60 * 60 * 1000;
 
@@ -43,6 +44,10 @@ async function main(): Promise<void> {
   const app = await createApp(c);
   await app.listen({ port: config.port, host: config.host });
   const lanStatus = await c.lan.apply(c.repos.settings.getAll().exposeLan);
+  const preview = config.previewPort
+    ? new PreviewProxy(c.appRunner, { host: config.host, port: config.previewPort, deniedPorts: [config.port] })
+    : null;
+  await preview?.start();
 
   // eslint-disable-next-line no-console
   console.log(
@@ -52,6 +57,7 @@ async function main(): Promise<void> {
       `  réseau local: ${lanStatus.enabled ? lanStatus.urls.join(', ') || 'activé (aucune interface)' : 'désactivé (loopback seul)'}`,
       `  mode: ${config.fakeCli ? 'SIMULATION (aucun appel claude réel)' : `réel (claude ${c.caps.version})`}`,
       `  auth: ${auth.ok ? 'OK' : `KO — ${auth.detail}`}`,
+      `  aperçu distant: ${preview ? `http://${config.host}:${preview.port}/__pjgen/` : 'désactivé (PJGEN_PREVIEW_PORT absent)'}`,
       `  workspaces: ${config.workspaceRoot}`,
       '',
     ].join('\n')
@@ -66,6 +72,7 @@ async function main(): Promise<void> {
     clearInterval(authTimer);
     try {
       await app.close();
+      await preview?.close();
     } catch {
       /* ignored */
     }

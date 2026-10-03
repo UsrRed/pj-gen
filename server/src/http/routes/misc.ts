@@ -111,6 +111,9 @@ export function registerMiscRoutes(app: FastifyInstance, c: Container): void {
     }
   });
 
+  /** Port of the Aperçu relay as browsers reach it (null = disabled), see preview/previewProxy.ts. */
+  app.get('/api/preview', async () => ({ port: c.config.previewPort ? c.config.previewPublicPort : null }));
+
   app.post('/api/projects/:id/app/stop', async (req) => {
     const { id } = req.params as { id: string };
     await c.appRunner.stop(id);
