@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import type { StackInfo } from '@pjgen/shared';
 import type { Config } from '../config.js';
 import { toolEnv } from '../core/toolEnv.js';
-import { clearInstallMark, installFingerprint, installIsFresh, markInstallOk } from './verifyCache.js';
+import { clearInstallMark, installFingerprint, installIsFresh, markInstallOk, ownsInstall } from './verifyCache.js';
 
 export interface VerifyResult {
   ok: boolean;
@@ -73,6 +73,13 @@ const CMD_TIMEOUTS: Record<VerifyKind, number> = {
 export interface VerifyOpts {
   /** Skips the install memoisation — used after a fix session, where a stale memo would hide a real break. */
   forceInstall?: boolean;
+  /**
+   * Test-only verifications assume `scaffold` already installed the dependencies. An
+   * imported project (micro mode, no scaffold) or a rebuilt runtime image never had
+   * that install: every implement_task then failed on e.g. « No module named pytest ».
+   * With this set, a main workspace whose install is not fresh runs it first (memoised).
+   */
+  ensureInstall?: boolean;
 }
 
 /** Runs the stack's commands in order, stopping at the first failure. Fake mode always passes. */
@@ -86,6 +93,7 @@ export async function verifyStack(
   if (config.fakeCli) return { ok: true, label: 'simulation', tail: '', durationMs: 0 };
   if (!stack) return { ok: false, label: 'stack', tail: 'stack inconnue (architecture manquante)', durationMs: 0 };
   const env = toolEnv(config);
+  if (opts.ensureInstall && !kinds.includes('install') && ownsInstall(workspace)) kinds = ['install', ...kinds];
   let totalMs = 0;
   for (const kind of kinds) {
     const cmd = kind === 'install' ? stack.install_cmd : kind === 'build' ? stack.build_cmd : stack.test_cmd;

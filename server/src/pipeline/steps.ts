@@ -237,7 +237,7 @@ async function runToolStep(ctx: StepCtx, o: ToolOpts): Promise<StepFlow> {
           const hasNew = await ws.hasNewCommitSince(workRoot, headBefore);
           if (!hasNew) return { ok: false, kind: 'verify_failed', message: 'aucun nouveau commit créé par la session' };
         }
-        const v = await verifyStack(config, workRoot, ctx.getStack(), o.verifyKinds);
+        const v = await verifyStack(config, workRoot, ctx.getStack(), o.verifyKinds, { ensureInstall: true });
         if (!v.ok) return { ok: false, kind: 'verify_failed', message: `${v.label}\n${v.tail}`.slice(-1800) };
         return { ok: true };
       },

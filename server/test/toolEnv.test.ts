@@ -11,6 +11,8 @@ describe('toolEnv', () => {
     expect(env.npm_config_cache).toBe(path.join(config.cacheDir, 'npm'));
     expect(env.PIP_CACHE_DIR).toBe(path.join(config.cacheDir, 'pip'));
     expect(env.CARGO_HOME).toBe(path.join(config.cacheDir, 'cargo'));
+    // pip --user installs must survive an image rebuild: the user base sits on the data volume.
+    expect(env.PYTHONUSERBASE).toBe(path.join(config.cacheDir, 'python-user'));
     expect(env.npm_config_audit).toBe('false');
   });
 

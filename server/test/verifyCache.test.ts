@@ -104,3 +104,60 @@ describe('verifyStack install skip', () => {
     expect(r.durationMs).toBeGreaterThan(100);
   });
 });
+
+describe('split layouts (backend/ + frontend/)', () => {
+  function seedSplit(): string {
+    const ws = tmpDir('verifysplit');
+    fs.mkdirSync(path.join(ws, '.git'), { recursive: true });
+    fs.mkdirSync(path.join(ws, 'backend'));
+    fs.mkdirSync(path.join(ws, 'frontend'));
+    fs.writeFileSync(path.join(ws, 'backend', 'pyproject.toml'), '[project]\nname = "x"\n');
+    fs.writeFileSync(path.join(ws, 'frontend', 'package.json'), JSON.stringify({ name: 'f' }));
+    return ws;
+  }
+
+  it('fingerprints manifests one directory down', () => {
+    const ws = seedSplit();
+    const fp = installFingerprint(ws, 'i');
+    fs.writeFileSync(path.join(ws, 'frontend', 'package.json'), JSON.stringify({ name: 'f', dependencies: { a: '1' } }));
+    expect(installFingerprint(ws, 'i')).not.toBe(fp);
+  });
+
+  it('sees an install output one directory down as present', () => {
+    const ws = seedSplit();
+    const fp = installFingerprint(ws, 'i');
+    markInstallOk(ws, fp);
+    expect(installIsFresh(ws, fp)).toBe(false);
+    fs.mkdirSync(path.join(ws, 'frontend', 'node_modules'));
+    expect(installIsFresh(ws, fp)).toBe(true);
+  });
+});
+
+describe('verifyStack ensureInstall', () => {
+  const stack: StackInfo = {
+    language: 'python',
+    install_cmd: 'mkdir -p node_modules && echo installed >> install.log',
+    build_cmd: '',
+    test_cmd: 'test -d node_modules',
+    run_cmd: '',
+  } as StackInfo;
+
+  it('installs before a test-only verification when nothing was installed (imported project)', async () => {
+    const ws = seedWorkspace();
+    const config = testConfig(tmpDir('cfg'), { fakeCli: false });
+    expect((await verifyStack(config, ws, stack, ['test'])).ok).toBe(false);
+
+    expect((await verifyStack(config, ws, stack, ['test'], { ensureInstall: true })).ok).toBe(true);
+    expect((await verifyStack(config, ws, stack, ['test'], { ensureInstall: true })).ok).toBe(true);
+    // Memoised: the second verification did not re-install.
+    expect(fs.readFileSync(path.join(ws, 'install.log'), 'utf8').trim().split('\n').length).toBe(1);
+  });
+
+  it('never installs from a worktree (its .git is a file, its deps are symlinks)', async () => {
+    const ws = tmpDir('verifywt');
+    fs.writeFileSync(path.join(ws, '.git'), 'gitdir: /elsewhere\n');
+    const config = testConfig(tmpDir('cfg'), { fakeCli: false });
+    expect((await verifyStack(config, ws, stack, ['test'], { ensureInstall: true })).ok).toBe(false);
+    expect(fs.existsSync(path.join(ws, 'install.log'))).toBe(false);
+  });
+});

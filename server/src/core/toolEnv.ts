@@ -33,6 +33,9 @@ export function toolEnv(config: Config, opts: ToolEnvOpts = {}): NodeJS.ProcessE
     npm_config_progress: 'false',
     // python / go / rust
     PIP_CACHE_DIR: path.join(c, 'pip'),
+    // As non-root, pip falls back to a --user install. The default user base (~/.local)
+    // lives in the image and was wiped by every rebuild; this one sits on the data volume.
+    PYTHONUSERBASE: path.join(c, 'python-user'),
     UV_CACHE_DIR: path.join(c, 'uv'),
     GOMODCACHE: path.join(c, 'go'),
     CARGO_HOME: path.join(c, 'cargo'),

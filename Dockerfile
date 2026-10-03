@@ -2,7 +2,7 @@
 
 # ── build : compile web/dist, installe toutes les deps (server tourne via tsx,
 #    pas de compilation TS séparée nécessaire pour le serveur) ──────────────
-FROM node:22-bookworm-slim AS builder
+FROM node:22-trixie-slim AS builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
       python3 make g++ ca-certificates \
     && rm -rf /var/lib/apt/lists/*
@@ -17,7 +17,7 @@ RUN npm run build
 
 # ── runtime : node_modules déjà construits, ajoute git (worktrees), gh et
 #    claude (CLI headless piloté via l'abonnement OAuth, jamais de clé API) ──
-FROM node:22-bookworm-slim
+FROM node:22-trixie-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
       git ca-certificates curl gnupg wget \
       python3 python3-pip python3-venv python-is-python3 \
@@ -47,6 +47,9 @@ ENV HOME=/root
 # sans interpréteur, chaque implement_task échouait sur « python: command not
 # found ». pip s'installe dans le site utilisateur (~/.local, uid node) ;
 # PEP 668 le refuse sur Debian sans ce drapeau — le conteneur est jetable.
+# Base trixie (Python 3.13) : bookworm n'avait que 3.11, et immo-paper exige
+# `requires-python >= 3.12` — son `pip install -e` ne pouvait pas aboutir.
+# Le site utilisateur effectif est PYTHONUSERBASE (cf. toolEnv, volume de données).
 ENV PIP_BREAK_SYSTEM_PACKAGES=1
 USER node
 
