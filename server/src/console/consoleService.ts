@@ -106,7 +106,9 @@ export class ConsoleService {
     };
     let pty: PtyLike;
     try {
-      pty = spawn(shell, ['-l'], { cols, rows, cwd: os.homedir(), env });
+      // Not a login shell: Debian's /etc/profile resets PATH and drops the image's
+      // /root/.local/bin — `claude` would be "command not found" (seen live).
+      pty = spawn(shell, [], { cols, rows, cwd: os.homedir(), env });
     } catch (err) {
       throw new HttpError(500, `Console : impossible de lancer ${shell} (${(err as Error).message})`);
     }

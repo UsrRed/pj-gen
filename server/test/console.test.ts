@@ -78,13 +78,14 @@ const hasNodePty = await import('node-pty').then(
   () => false
 );
 describe.skipIf(!hasNodePty)('ConsoleService with node-pty', () => {
-  it('runs a real login shell in a pty', async () => {
+  it('runs a real shell in a pty, keeping the server PATH', async () => {
     const svc = new ConsoleService(testConfig(tmpDir('console')));
     await svc.start(100, 30);
-    svc.write('stty size; echo "tty=$(tty)"; exit\r');
+    svc.write('stty size; echo "tty=$(tty)"; echo "path=$PATH"; exit\r');
     await waitFor(() => !svc.status().running, 10_000, 'shell exit');
     expect(svc.snapshot()).toContain('30 100');
     expect(svc.snapshot()).toMatch(/tty=\/dev\/pts\//);
+    expect(svc.snapshot()).toContain(`path=${process.env.PATH}`);
   });
 });
 
