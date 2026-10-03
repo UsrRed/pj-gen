@@ -48,6 +48,27 @@ export function ciStateOf(runs: { status: string; conclusion: string }[]): CiSta
 }
 
 /**
+ * Git credential helper for github.com, injected through the environment
+ * (GIT_CONFIG_COUNT/KEY_n/VALUE_n, appended after any pair already set) —
+ * equivalent to `gh auth setup-git`, but without depending on a ~/.gitconfig
+ * that does not survive a container rebuild. Without it every https push/fetch
+ * fails with "could not read Username for 'https://github.com'" while gh API
+ * calls keep working. The empty first value resets inherited helpers. Pure — unit-tested.
+ */
+export function ghCredentialEnv(ghBin: string, base: NodeJS.ProcessEnv): Record<string, string> {
+  const start = Number(base.GIT_CONFIG_COUNT) || 0;
+  const key = 'credential.https://github.com.helper';
+  const quoted = `'${ghBin.replace(/'/g, `'\\''`)}'`;
+  return {
+    GIT_CONFIG_COUNT: String(start + 2),
+    [`GIT_CONFIG_KEY_${start}`]: key,
+    [`GIT_CONFIG_VALUE_${start}`]: '',
+    [`GIT_CONFIG_KEY_${start + 1}`]: key,
+    [`GIT_CONFIG_VALUE_${start + 1}`]: `!${quoted} auth git-credential`,
+  };
+}
+
+/**
  * GitHub integration via the `gh` CLI. pj-gen never touches a token: gh keeps
  * its own keyring; git identity (UsrRed) is forced through the env on every call.
  */
@@ -60,6 +81,7 @@ export class GithubService {
     const { config } = this.deps;
     return {
       ...process.env,
+      ...ghCredentialEnv(config.ghBin, process.env),
       GIT_AUTHOR_NAME: config.gitAuthorName,
       GIT_AUTHOR_EMAIL: config.gitAuthorEmail,
       GIT_COMMITTER_NAME: config.gitAuthorName,
