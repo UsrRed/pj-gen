@@ -18,6 +18,21 @@ import type { AppRunner } from './appRunner.js';
  */
 
 const COOKIE = 'pjgen_preview';
+
+/**
+ * Every upstream is a loopback dev server, but which loopback depends on the tool: Vite 5 binds
+ * `localhost` to ::1 only, while Node's own lookup of `localhost` (AI_ADDRCONFIG, no global IPv6
+ * in a container) yields 127.0.0.1 only — ECONNREFUSED although the server is up. Offer both and
+ * let autoSelectFamily try them in turn.
+ */
+const loopbackLookup: net.LookupFunction = (_hostname, options, callback) => {
+  const all = [
+    { address: '127.0.0.1', family: 4 },
+    { address: '::1', family: 6 },
+  ];
+  if ((options as { all?: boolean }).all) (callback as unknown as (e: null, a: typeof all) => void)(null, all);
+  else callback(null, all[0].address, all[0].family);
+};
 const CTRL = '/__pjgen';
 
 type Target = { kind: 'project'; projectId: string } | { kind: 'port'; port: number };
@@ -90,14 +105,18 @@ export class PreviewProxy {
       return;
     }
 
+    // autoSelectFamily is handed to net.connect by the agent; RequestOptions just doesn't type it.
+    const options: http.RequestOptions & { autoSelectFamily: boolean } = {
+      host: 'localhost',
+      port: upstream.port,
+      lookup: loopbackLookup,
+      autoSelectFamily: true,
+      method: req.method,
+      path: url,
+      headers: forwardHeaders(req, upstream),
+    };
     const proxyReq = http.request(
-      {
-        host: upstream.host,
-        port: upstream.port,
-        method: req.method,
-        path: url,
-        headers: forwardHeaders(req, upstream),
-      },
+      options,
       (proxyRes) => {
         const headers = { ...proxyRes.headers };
         if (typeof headers.location === 'string') headers.location = relativeLocation(headers.location, upstream);
@@ -110,7 +129,7 @@ export class PreviewProxy {
         res.destroy();
         return;
       }
-      page(res, 502, `Le serveur de l’aperçu ne répond pas sur ${upstream.host}:${upstream.port} (${err.message}).`, this.listing());
+      page(res, 502, `Le serveur de l’aperçu ne répond pas sur le port ${upstream.port} (${err.message}).`, this.listing());
     });
     req.pipe(proxyReq);
   }
@@ -124,7 +143,7 @@ export class PreviewProxy {
       socket.end('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n');
       return;
     }
-    const up = net.connect(upstream.port, upstream.host);
+    const up = net.connect({ host: 'localhost', port: upstream.port, lookup: loopbackLookup, autoSelectFamily: true });
     this.sockets.add(up);
     up.once('close', () => this.sockets.delete(up));
     up.on('connect', () => {
@@ -177,7 +196,7 @@ export class PreviewProxy {
     try {
       const u = new URL(url);
       const p = Number(u.port || 80);
-      return validPort(p) ? { host: u.hostname, port: p } : null;
+      return validPort(p) ? { host: u.hostname === '[::1]' ? 'localhost' : u.hostname, port: p } : null;
     } catch {
       return null;
     }

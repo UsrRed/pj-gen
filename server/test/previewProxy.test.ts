@@ -11,7 +11,7 @@ afterEach(async () => {
 });
 
 /** Stand-in dev server: echoes what it received, answers upgrades with a 101 + one frame of text. */
-async function upstream(): Promise<number> {
+async function upstream(bind = '127.0.0.1'): Promise<number> {
   const server = http.createServer((req, res) => {
     if (req.url === '/redirect') {
       res.writeHead(302, { location: `http://localhost:${(server.address() as net.AddressInfo).port}/after?x=1` });
@@ -25,7 +25,7 @@ async function upstream(): Promise<number> {
     socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: test\r\nConnection: Upgrade\r\n\r\nhello ${req.url}`);
     socket.end();
   });
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+  await new Promise<void>((r) => server.listen(0, bind, r));
   cleanups.push(() => new Promise<void>((r) => server.close(() => r())));
   return (server.address() as net.AddressInfo).port;
 }
@@ -81,7 +81,8 @@ describe('PreviewProxy (aperçu distant)', () => {
   it('follows the running app of a project and relays upgrades (HMR websockets)', async () => {
     const { c } = await testContainer();
     cleanups.push(() => c.close());
-    const up = await upstream();
+    // ::1 only, like Vite 5 binding `localhost` — Node's default lookup would try 127.0.0.1 alone.
+    const up = await upstream('::1');
     const id = await seedRunnable(c, `echo "listening on http://localhost:${up}"; sleep 60`);
     const proxy = await proxyFor(c);
     const base = `http://127.0.0.1:${proxy.port}`;
