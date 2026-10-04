@@ -707,7 +707,7 @@ export class IssuePoller {
       '',
       caveat ? `⚠️ ${caveat}` : '',
       '',
-      `_Évolution ${AI_MARKER}`,
+      AI_MENTION,
     ]
       .filter((l, i, a) => !(l === '' && a[i - 1] === ''))
       .join('\n');
