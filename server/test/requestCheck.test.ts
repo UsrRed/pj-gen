@@ -77,7 +77,7 @@ describe('request_check step (micro pipeline)', () => {
     expect(fs.readFileSync(path.join(ws, 'docs', 'request-checks', 't04.md'), 'utf8')).toContain('Demande satisfaite.');
   });
 
-  it('gives up after the max fix rounds: request failed with the gaps, never done', async () => {
+  it('gives up after the max fix rounds: request failed with the gaps, never done, project not blocked', async () => {
     let checks = 0;
     let fixes = 0;
     const { c } = await testContainer({
@@ -106,7 +106,29 @@ describe('request_check step (micro pipeline)', () => {
     expect(mr.error_message).toContain('IMPORTER_VERSION');
     // The task itself is done — that alone must not make the request done.
     expect(c.repos.tasks.get(id, 'T04')!.status).toBe('done');
-    expect(c.repos.projects.byId(id)!.status).toBe('failed');
+    // Only the request fails: the cycle finishes (final_verify) and the project stays usable.
+    await waitFor(() => c.repos.projects.byId(id)!.status === 'awaiting_deploy_approval', 20_000, 'cycle terminé');
+    expect(c.repos.projects.byId(id)!.error_message).toBeNull();
+  });
+
+  it('a rejected issue fix on an auto-mode project still returns it to deployed', async () => {
+    const { c } = await testContainer({
+      script: fastScript((spec) => {
+        if (isCheck(spec)) return { delayMs: 10, result: { outcome: 'success', structured: GAP } };
+        if (spec.tools === 'default' && spec.prompt.includes('Le contrôle de la demande a trouvé')) {
+          return { delayMs: 10, result: { outcome: 'success', resultText: 'tenté' } };
+        }
+        return undefined;
+      }),
+    });
+    cRef = c;
+    const id = await builtProject(c, 'Check Auto');
+    c.repos.projects.casStatus(id, ['awaiting_deploy_approval'], 'deployed');
+    c.repos.projects.patch(id, { github_repo: 'usrred/check-auto', github_private: 1, github_auto_mode: 1 });
+
+    await c.micro.create(id, 'Corrige les icônes.', 'issue', 9);
+    await waitFor(() => c.repos.micro.list(id)[0].status === 'failed', 20_000, 'requête en échec');
+    await waitFor(() => c.repos.projects.byId(id)!.status === 'deployed', 20_000, 'retour direct deployed');
   });
 });
 

@@ -119,6 +119,9 @@ export class Engine {
     // An explicit per-project benchmark choice outranks the tier's default.
     if (project.design_benchmark !== null) skip.delete('design_benchmark');
 
+    // Requests riding this cycle: request_check may settle some of them (failed) before the end.
+    const cycleRequestIds = repos.micro.open(projectId).map((r) => r.id);
+
     const order = isMicro ? MICRO_PIPELINE_ORDER : PIPELINE_ORDER;
     const startIdx = project.current_step_key ? Math.max(0, order.indexOf(project.current_step_key)) : 0;
 
@@ -157,7 +160,8 @@ export class Engine {
       // Manual micro-mods go back through the deploy gate; issue fixes on an
       // auto-mode project (private repo) return straight to deployed.
       const finalRow = repos.projects.byId(projectId)!;
-      const autoIssueOnly = settled.length > 0 && settled.every((r) => r.source === 'issue') && finalRow.github_auto_mode === 1;
+      const ridden = [...new Set([...cycleRequestIds, ...settled.map((r) => r.id)])].map((rid) => repos.micro.byId(rid)!);
+      const autoIssueOnly = ridden.length > 0 && ridden.every((r) => r.source === 'issue') && finalRow.github_auto_mode === 1;
       this.sm.tryTransition(projectId, ['building'], autoIssueOnly ? 'deployed' : 'awaiting_deploy_approval', {
         current_step_key: null,
         current_task_key: null,

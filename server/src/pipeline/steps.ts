@@ -55,7 +55,7 @@ import { profileFor } from './sizing.js';
 import { accessBlock } from '../prompts/access.js';
 import { blockingEdges, dagWidth, overlappingPairs, pickBatch, readySet } from './taskBatch.js';
 import { releaseAll } from '../core/sessionPool.js';
-import { toAccessDto, toTaskDto, type MicroRequestRow } from '../db/repos/index.js';
+import { toAccessDto, toMicroDto, toTaskDto, type MicroRequestRow } from '../db/repos/index.js';
 
 export type StepFlow =
   | { status: 'ok' }
@@ -945,7 +945,9 @@ export async function stepFeatureCheck(ctx: StepCtx): Promise<StepFlow> {
 /**
  * Fix rounds the request check may spend per request before giving up. Bounded on purpose:
  * past it the request settles as failed (the GitHub issue stays open with the remaining
- * gaps) instead of looping on a change the pipeline cannot land.
+ * gaps) instead of looping on a change the pipeline cannot land. Only that request fails:
+ * the cycle goes on (final_verify, deploy) so the project is never left `failed` by a
+ * verdict — that blocked every later issue until someone retried by hand.
  */
 export const REQUEST_CHECK_FIX_ROUNDS = 2;
 
@@ -967,12 +969,21 @@ export async function stepRequestCheck(ctx: StepCtx): Promise<StepFlow> {
     // An unfinished task already settles its request as failed — nothing to judge.
     if (!row || row.status !== 'done') continue;
     const flow = await checkOneRequest(ctx, mr, toTaskDto(row), stack);
+    if (flow.status === 'rejected') {
+      // Settle this request alone as failed (its issue stays open with the gaps) and keep
+      // the cycle going: the change is committed and builds, it just does not fully answer.
+      const patched = repos.micro.patch(mr.id, { status: 'failed', error_message: `request_check: ${flow.message}` });
+      ctx.deps.bus.emit('micro.updated', ctx.projectId, { request: toMicroDto(patched) });
+      continue;
+    }
     if (flow.status !== 'ok') return flow;
   }
   return { status: 'ok' };
 }
 
-async function checkOneRequest(ctx: StepCtx, mr: MicroRequestRow, task: TaskDto, stack: StackInfo): Promise<StepFlow> {
+type RequestCheckFlow = StepFlow | { status: 'rejected'; message: string };
+
+async function checkOneRequest(ctx: StepCtx, mr: MicroRequestRow, task: TaskDto, stack: StackInfo): Promise<RequestCheckFlow> {
   const { ws, bus, repos } = ctx.deps;
   const tk = task.taskKey.toLowerCase();
   const reportPath = `docs/request-checks/${tk}.md`;
@@ -1017,7 +1028,7 @@ async function checkOneRequest(ctx: StepCtx, mr: MicroRequestRow, task: TaskDto,
       if (f.kind === 'usage_limit') return { status: 'parked' };
       if (f.kind === 'canceled') return { status: 'halted', mode: haltMode(ctx.signal) };
       if (f.kind === 'auth') return { status: 'failed', message: f.message };
-      if (round === REQUEST_CHECK_FIX_ROUNDS) return { status: 'failed', message: `contrôle de la demande impossible (${task.taskKey}): ${f.message}` };
+      if (round === REQUEST_CHECK_FIX_ROUNDS) return { status: 'rejected', message: `contrôle de la demande impossible (${task.taskKey}): ${f.message}` };
       continue;
     }
 
@@ -1041,7 +1052,7 @@ async function checkOneRequest(ctx: StepCtx, mr: MicroRequestRow, task: TaskDto,
     if (round === REQUEST_CHECK_FIX_ROUNDS) {
       const list = gaps.map((g) => `[${g.status}] ${g.need}${g.fix_hint ? ` — ${g.fix_hint}` : ''}`).join(' ; ');
       return {
-        status: 'failed',
+        status: 'rejected',
         message: `demande non satisfaite après ${REQUEST_CHECK_FIX_ROUNDS} corrections (${task.taskKey}, voir ${reportPath}): ${list}`.slice(0, 1500),
       };
     }
@@ -1058,7 +1069,7 @@ async function checkOneRequest(ctx: StepCtx, mr: MicroRequestRow, task: TaskDto,
     if (fix.status === 'parked' || fix.status === 'halted') return fix;
     // even if the fix session failed, the next check decides
   }
-  return { status: 'failed', message: `contrôle de la demande non conclusif (${task.taskKey})` };
+  return { status: 'rejected', message: `contrôle de la demande non conclusif (${task.taskKey})` };
 }
 
 export async function stepTestHardening(ctx: StepCtx): Promise<StepFlow> {
