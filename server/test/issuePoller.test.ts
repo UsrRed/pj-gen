@@ -6,6 +6,7 @@ import {
   AI_MARKER,
   IssuePoller,
   buildIssueRequest,
+  cadrageQuestionComment,
   classifyIssueScope,
   isPjGenComment,
   type IssueComment,
@@ -114,8 +115,9 @@ class FakeGithub {
   async listIssues() {
     return this.issues;
   }
+  thread: IssueComment[] = [];
   async issueComments() {
-    return [];
+    return this.thread;
   }
   async downloadIssueAttachments() {
     return [];
@@ -483,5 +485,189 @@ describe('IssuePoller security filter (T11): isolated check before any auto-rout
     expect(micro.calls).toEqual([issue().id]); // routed normally, as any other issue
     expect(issue().decision).not.toBe('blocked_security');
     expect(gh.comments[0].body).toContain('micro-modification');
+  });
+});
+
+describe('cadrageQuestionComment', () => {
+  it('lists the questions, the default fallback when ready, and the AI marker', () => {
+    const body = cadrageQuestionComment('Proposition : montage de ${HOME}.', ['Quel dossier ?', 'Déplacer ou copier ?'], true, 2);
+    expect(body).toContain('itération 2');
+    expect(body).toContain('1. Quel dossier ?\n2. Déplacer ou copier ?');
+    expect(body).toContain('Sans réponse sous 24 h');
+    expect(body).toContain(AI_MARKER);
+  });
+
+  it('without a ready SPEC: waits for the answers, no default fallback', () => {
+    const body = cadrageQuestionComment('Il manque le périmètre.', [], false, 3);
+    expect(body).not.toContain('24 h');
+    expect(body).toContain('dès que ces points seront tranchés');
+  });
+});
+
+describe('IssuePoller: full iteration driven from the issue thread', () => {
+  let cRef: Container | null = null;
+  let pollerRef: IssuePoller | null = null;
+  afterEach(() => {
+    vi.restoreAllMocks();
+    pollerRef?.stop();
+    pollerRef = null;
+    cRef?.close();
+    cRef = null;
+  });
+
+  /** Project reopened (iteration 2, draft) for issue #20, first cadrage turn already answered. */
+  async function setup(reply: { open_questions: string[]; ready_for_spec: boolean }) {
+    const { c } = await testContainer();
+    cRef = c;
+    const slug = 'issue-driven';
+    const workspacePath = await c.ws.create(slug, 'Issue Driven');
+    const id = 'issue-driven-id';
+    c.repos.projects.insert({ id, slug, title: 'Issue Driven', model: null, workspacePath, initialPrompt: 'test' });
+    c.repos.projects.patch(id, {
+      github_repo: 'usrred/issue-driven',
+      github_private: 1,
+      github_auto_mode: 1,
+      iteration: 2,
+      reopened_at: Date.now() - 1000,
+    });
+    c.repos.tasks.replaceAll(id, [
+      { taskKey: 'T01', position: 0, title: 'Ancienne tâche', description: '', filesHint: [], writes: [], acceptance: [], dependsOn: [], after: [], phase: 'core' },
+    ]);
+    c.repos.tasks.setStatus(id, 'T01', 'done');
+
+    const gh = new FakeGithub();
+    gh.issues = [{ number: 20, title: 'Emplacement du fichier', body: 'Choisir le fichier au setup', author: { login: 'alice' }, updatedAt: '2026-10-03T20:00:00Z' }];
+    const { row } = c.repos.issues.upsert(id, { number: 20, title: 'Emplacement du fichier', body: 'Choisir le fichier au setup', author: 'alice', ghUpdatedAt: '2026-10-03T20:00:00Z' });
+    c.repos.issues.patch(row.id, { decision: 'escalated', iteration: 2, task_floor: 0 });
+    c.repos.messages.insert(id, 'cadrage', 'user', 'Issue GitHub #20 de @alice — Emplacement du fichier');
+    c.repos.messages.insert(id, 'cadrage', 'assistant', 'Proposition : monter ${HOME} sous /host.', { ...reply, suggested_size: 'mvp' });
+
+    // SPEC generation stubbed: writes a SPEC and moves draft → spec_ready, as the real one does.
+    const generate = vi.spyOn(c.spec, 'generateSpec').mockImplementation(async (pid: string) => {
+      c.ws.writeFile(workspacePath, 'docs/SPEC.md', '# immo — Révision 2 : emplacement du fichier\n\nContenu de SPEC suffisant pour le test.\n');
+      c.repos.projects.casStatus(pid, ['draft'], 'spec_ready');
+    });
+    const turn = vi.spyOn(c.spec, 'continueCadrage').mockResolvedValue(undefined);
+    const poller = new IssuePoller(c, gh as unknown as GithubService, new FakeMicro() as unknown as MicroService, c.spec);
+    pollerRef = poller;
+    const issue = () => c.repos.issues.byNumber(id, 20)!;
+    const project = () => c.repos.projects.byId(id)!;
+    return { c, id, gh, poller, issue, project, generate, turn, workspacePath };
+  }
+
+  it('open questions are posted on the issue (not left in the UI) and the build waits', async () => {
+    const { gh, poller, issue, project, generate } = await setup({ open_questions: ['Quel dossier rendre accessible ?'], ready_for_spec: true });
+
+    await poller.tick();
+
+    expect(gh.comments).toHaveLength(1);
+    expect(gh.comments[0].body).toContain('Quel dossier rendre accessible ?');
+    expect(gh.comments[0].body).toContain('monter ${HOME}');
+    expect(issue().decision).toBe('awaiting_reply');
+    expect(generate).not.toHaveBeenCalled();
+    expect(project().status).toBe('draft');
+
+    await poller.tick(); // same reply: never posted twice
+    expect(gh.comments).toHaveLength(1);
+  });
+
+  it("the author's answer on the issue becomes the next cadrage turn", async () => {
+    const { gh, poller, issue, turn, id } = await setup({ open_questions: ['Quel dossier ?'], ready_for_spec: true });
+    await poller.tick();
+    expect(issue().decision).toBe('awaiting_reply');
+
+    gh.thread = [
+      { author: { login: 'UsrRed' }, createdAt: new Date(Date.now() - 60_000).toISOString(), body: `vieux\n\n_Message ${AI_MARKER}` },
+      { author: { login: 'alice' }, createdAt: new Date(Date.now() + 1000).toISOString(), body: 'Tout le disque, je suis sous Linux.' },
+    ];
+    gh.issues[0].updatedAt = '2026-10-04T08:00:00Z';
+    await poller.tick();
+
+    expect(turn).toHaveBeenCalledTimes(1);
+    expect(turn.mock.calls[0][0]).toBe(id);
+    expect(turn.mock.calls[0][1]).toContain("Réponse sur l'issue GitHub #20");
+    expect(turn.mock.calls[0][1]).toContain('Tout le disque, je suis sous Linux.');
+    expect(turn.mock.calls[0][1]).not.toContain('vieux');
+    expect(issue().decision).toBe('escalated');
+  });
+
+  it('nothing left open: SPEC generated and validated without the UI, build queued, announced on the issue', async () => {
+    const { gh, poller, issue, project, generate } = await setup({ open_questions: [], ready_for_spec: true });
+
+    await poller.tick();
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(project().status).toBe('queued');
+    expect(project().spec_sha256).toBeTruthy();
+    expect(issue().decision).toBe('escalated');
+    expect(gh.comments).toHaveLength(1);
+    expect(gh.comments[0].body).toContain('Cadrage terminé');
+    expect(gh.comments[0].body).toContain('Révision 2');
+    expect(gh.comments[0].body).toContain('monter ${HOME}');
+  });
+
+  it('unanswered questions with proposed defaults: defaults applied after 24 h', async () => {
+    const { c, gh, poller, issue, project, generate } = await setup({ open_questions: ['Quel dossier ?'], ready_for_spec: true });
+    await poller.tick();
+    c.repos.issues.patch(issue().id, { posted_comment_at: Date.now() - 25 * 3_600_000 });
+    // Backdate the whole iteration so the reply still predates the (backdated) question comment.
+    c.db.prepare('UPDATE messages SET created_at = ?').run(Date.now() - 26 * 3_600_000);
+    c.repos.projects.patch(project().id, { reopened_at: Date.now() - 27 * 3_600_000 });
+
+    await poller.tick();
+
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(project().status).toBe('queued');
+    expect(gh.comments.at(-1)!.body).toContain('choix par défaut proposés ont été appliqués');
+  });
+
+  it('delivered iteration (deployed): auto-push, comment listing the iteration tasks, issue closed', async () => {
+    const { c, id, gh, poller, issue, project } = await setup({ open_questions: [], ready_for_spec: true });
+    c.repos.tasks.append(id, [
+      { taskKey: 'T02', title: 'Assistant de premier démarrage', description: '', filesHint: [], writes: [], acceptance: [], dependsOn: [], after: [], phase: 'core' },
+    ]);
+    c.repos.tasks.setStatus(id, 'T02', 'done', 'abcdef1234567');
+    c.repos.projects.casStatus(id, ['draft'], 'spec_ready');
+    c.repos.projects.casStatus(id, ['spec_ready'], 'queued');
+    c.repos.projects.casStatus(id, ['queued'], 'building');
+    c.repos.projects.casStatus(id, ['building'], 'deployed');
+    gh.syncState = async () => ({ ahead: 3, behind: 0 });
+
+    await poller.tick();
+
+    expect(project().status).toBe('deployed');
+    expect(gh.pushed).toBe(1);
+    expect(gh.closed).toEqual([20]);
+    expect(issue().decision).toBe('fixed');
+    const body = gh.comments.at(-1)!.body;
+    expect(body).toContain('Itération 2 livrée');
+    expect(body).toContain('T02 — Assistant de premier démarrage');
+    expect(body).not.toContain('Ancienne tâche');
+    expect(body).toContain(AI_MARKER);
+  });
+
+  it('a failed build is reported on the issue, which stays open and frees the queue', async () => {
+    const { c, id, gh, poller, issue } = await setup({ open_questions: [], ready_for_spec: true });
+    c.repos.projects.casStatus(id, ['draft'], 'spec_ready');
+    c.repos.projects.casStatus(id, ['spec_ready'], 'queued');
+    c.repos.projects.casStatus(id, ['queued'], 'building');
+    c.repos.projects.casStatus(id, ['building'], 'failed');
+
+    await poller.tick();
+
+    expect(issue().decision).toBe('failed');
+    expect(gh.closed).toEqual([]);
+    expect(gh.comments.at(-1)!.body).toContain("n'a pas pu livrer");
+  });
+
+  it('while a full iteration runs for one issue, no other queued issue is drained on that project', async () => {
+    const { c, id, gh, poller } = await setup({ open_questions: ['Q ?'], ready_for_spec: false });
+    gh.issues.push({ number: 21, title: 'Petit bug', body: 'corps', author: { login: 'alice' }, updatedAt: '2026-10-03T20:00:00Z' });
+    const { row } = c.repos.issues.upsert(id, { number: 21, title: 'Petit bug', body: 'corps', author: 'alice', ghUpdatedAt: '2026-10-03T20:00:00Z' });
+    c.repos.issues.patch(row.id, { decision: 'queued' });
+
+    await poller.tick();
+
+    expect(c.repos.issues.byNumber(id, 21)!.decision).toBe('queued');
   });
 });

@@ -49,7 +49,7 @@ pj-gen/
 - **Web** : `react`/`react-dom` 19, `react-router-dom` 7, `zustand` 5, `react-markdown`, `@xterm/xterm` (+`addon-fit`, `addon-web-links`). Dev : `vite` 7, `@vitejs/plugin-react`, `tailwindcss` 4 (+`@tailwindcss/vite`), `typescript`, `vitest` (+`jsdom`, `@testing-library/react`, `@testing-library/jest-dom`) pour les tests de composants/logique client (`web/test/*.test.{ts,tsx}`).
 - **Racine** : `concurrently` (dev orchestration `dev`/`dev:fake`).
 - Binaires externes invoqués via `execFile`/`spawn` : `claude` (CLI Claude Code), `git`, `gh` (GitHub CLI), `xdg-open` (ouverture dossier hôte, best-effort).
-- Aucune base de données externe : SQLite fichier unique en WAL, migrations versionnées via `PRAGMA user_version` (`db/migrations.ts`, v1→v12).
+- Aucune base de données externe : SQLite fichier unique en WAL, migrations versionnées via `PRAGMA user_version` (`db/migrations.ts`, v1→v14).
 
 ## Points d'entrée / scripts
 

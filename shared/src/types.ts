@@ -355,6 +355,7 @@ export type IssueDecision =
   | 'failed'
   | 'needs_clarification'
   | 'escalated'
+  | 'awaiting_reply'
   | 'blocked_security';
 
 export interface IssueDto {

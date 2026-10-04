@@ -12,6 +12,10 @@ export interface IssueRow {
   gh_updated_at: string | null;
   decision: IssueDecision;
   posted_comment_at: number | null;
+  /** Full iteration opened for this issue (decision escalated/awaiting_reply), null otherwise. */
+  iteration: number | null;
+  /** Highest task position before that iteration: tasks above it belong to the issue. */
+  task_floor: number | null;
   last_synced_at: number;
   created_at: number;
   updated_at: number;
@@ -95,7 +99,7 @@ export class IssuesRepo {
       .all(projectId, ...decisions) as IssueRow[];
   }
 
-  patch(id: number, patch: Partial<Pick<IssueRow, 'decision' | 'posted_comment_at'>>): IssueRow {
+  patch(id: number, patch: Partial<Pick<IssueRow, 'decision' | 'posted_comment_at' | 'iteration' | 'task_floor'>>): IssueRow {
     const sets: string[] = ['updated_at = ?'];
     const values: unknown[] = [Date.now()];
     for (const [k, v] of Object.entries(patch)) {

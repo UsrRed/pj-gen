@@ -209,6 +209,11 @@ export class SpecService {
     void this.chat.runCadrageTurn(projectId, request);
   }
 
+  /** Next cadrage turn fed from outside the UI (answers posted on a GitHub issue). */
+  continueCadrage(projectId: string, text: string, opts: { skipUserInsert?: boolean } = {}): Promise<void> {
+    return this.chat.runCadrageTurn(projectId, text, opts);
+  }
+
   /** Freeze the spec (sha256) and enqueue the project for autonomous build. */
   async validateSpec(projectId: string): Promise<void> {
     if (this.inFlight.has(projectId)) {

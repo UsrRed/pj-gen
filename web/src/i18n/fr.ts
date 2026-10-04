@@ -317,6 +317,7 @@ gh auth login
     failed: 'échec',
     needs_clarification: 'précisions demandées',
     escalated: 'itération complète en cours',
+    awaiting_reply: 'questions posées sur l’issue',
     blocked_security: 'bloquée (sécurité)',
   } as Record<string, string>,
   issueTrack: 'Suivi',

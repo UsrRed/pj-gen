@@ -276,6 +276,14 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE projects ADD COLUMN github_ci_pending INTEGER NOT NULL DEFAULT 0;
   `,
+  // v14 — itération complète pilotée depuis une issue GitHub: l'itération ouverte pour
+  // l'issue (pour la clore quand ELLE est livrée, pas une suivante) et la position de la
+  // dernière tâche existante à l'ouverture (pour lister dans l'issue les seules tâches de
+  // cette itération).
+  `
+  ALTER TABLE issues ADD COLUMN iteration INTEGER;
+  ALTER TABLE issues ADD COLUMN task_floor INTEGER;
+  `,
 ];
 
 export function migrate(db: DB): void {

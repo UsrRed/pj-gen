@@ -3,7 +3,7 @@ import type { CoreDeps } from '../core/deps.js';
 import { toAccessDto, toMessageDto } from '../db/repos/index.js';
 import type { MessageRow } from '../db/repos/index.js';
 import { CADRAGE_JSON_SCHEMA, CadrageReplyZ, extractStructured } from '../prompts/schemas.js';
-import { CADRAGE_SYSTEM, memoryBlock, revisionCadrageContext } from '../prompts/steps.js';
+import { CADRAGE_SYSTEM, ISSUE_CADRAGE_NOTE, memoryBlock, revisionCadrageContext } from '../prompts/steps.js';
 import { commonSystemPrompt } from '../prompts/common.js';
 import { capsFor, resolveModel } from '../pipeline/models.js';
 import { recordUsage } from '../core/usageTracker.js';
@@ -94,6 +94,10 @@ export class ChatService {
       if (spec) revisionContext = `\n\n${revisionCadrageContext(project.iteration, spec.content)}`;
     }
 
+    // Iteration driven by a GitHub issue: the reply goes to the issue thread, not to the UI.
+    // ('fixing' during a cadrage = an issue micro fix the engine just escalated.)
+    const issueDriven = repos.issues.byDecision(projectId, ['escalated', 'awaiting_reply', 'fixing']).length > 0;
+
     // Optional persistent memory (issue #8, T11) — off by default, opt-in + operator key.
     const memory = memoryMcp(this.deps);
 
@@ -107,7 +111,7 @@ export class ChatService {
       tools: memory?.tools ?? 'none',
       mcpConfig: memory?.mcpConfig,
       jsonSchema: CADRAGE_JSON_SCHEMA,
-      appendSystemPrompt: `${CADRAGE_SYSTEM}\n\n${commonSystemPrompt()}${revisionContext}${memory ? memoryBlock : ''}`,
+      appendSystemPrompt: `${CADRAGE_SYSTEM}\n\n${commonSystemPrompt()}${revisionContext}${issueDriven ? `\n\n${ISSUE_CADRAGE_NOTE}` : ''}${memory ? memoryBlock : ''}`,
       maxBudgetUsd: settings.maxBudgetUsdPerSession,
       maxTurns: caps.maxTurns,
       timeoutMs: caps.timeoutMs,

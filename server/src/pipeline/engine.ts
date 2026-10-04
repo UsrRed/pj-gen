@@ -168,7 +168,13 @@ export class Engine {
       return 'completed';
     }
 
-    this.sm.tryTransition(projectId, ['building'], 'awaiting_deploy_approval', {
+    // An iteration driven by a GitHub issue on an auto-mode project skips the deploy gate,
+    // like issue micro-fixes: IssuePoller pushes it and closes the issue from 'deployed'.
+    const finalRow = repos.projects.byId(projectId)!;
+    const issueDriven =
+      finalRow.github_auto_mode === 1 &&
+      repos.issues.byDecision(projectId, ['escalated']).some((i) => (i.iteration ?? finalRow.iteration) === finalRow.iteration);
+    this.sm.tryTransition(projectId, ['building'], issueDriven ? 'deployed' : 'awaiting_deploy_approval', {
       current_step_key: null,
       current_task_key: null,
       error_message: null,

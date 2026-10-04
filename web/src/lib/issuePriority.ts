@@ -6,6 +6,7 @@ const GROUP_BY_DECISION: Record<IssueDecision, 0 | 1 | 2> = {
   fixing: 0,
   ci_running: 0,
   escalated: 0,
+  awaiting_reply: 0,
   needs_clarification: 0,
   queued: 1,
   pending: 1,

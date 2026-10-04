@@ -39,6 +39,17 @@ Objectif: aboutir rapidement à une spécification claire et réalisable du proj
 - Quand tu as assez d'éléments, mets ready_for_spec à true et résume ta compréhension dans reply_markdown.`;
 
 /**
+ * Appended to the cadrage system prompt while the iteration is driven by a GitHub issue:
+ * nobody watches the pj-gen UI, every reply is posted as-is on the issue, and the build
+ * starts by itself as soon as ready_for_spec is true with no open question left.
+ */
+export const ISSUE_CADRAGE_NOTE = `CETTE ITÉRATION VIENT D'UNE ISSUE GITHUB ET SE PILOTE ENTIÈREMENT DANS SON FIL:
+- reply_markdown est publié tel quel en commentaire de l'issue et open_questions y est listé: écris pour l'auteur de l'issue (pas d'allusion à l'interface de pj-gen, aux onglets ou boutons, ni au panneau « Accès & secrets »).
+- Les réponses arrivent comme de nouveaux messages « Réponse sur l'issue GitHub ».
+- Ne pose QUE les questions dont la réponse change réellement le résultat, chacune avec son choix par défaut. Si les choix par défaut suffisent, laisse open_questions VIDE et mets ready_for_spec à true: la SPEC est alors générée, validée et construite automatiquement, puis poussée sur le dépôt.
+- Si tu poses des questions alors que ready_for_spec est true, les choix par défaut s'appliqueront faute de réponse sous 24 h.`;
+
+/**
  * Appended to a task prompt when it runs in an isolated worktree alongside siblings.
  * Its job is to keep the task inside its declared write set so the merge stays trivial.
  */
