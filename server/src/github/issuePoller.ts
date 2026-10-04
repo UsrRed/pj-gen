@@ -380,7 +380,13 @@ export class IssuePoller {
 
       if (issue.decision === 'fixing') {
         if (mr.status === 'failed') {
-          this.emitIssue(repos.issues.patch(issue.id, { decision: 'failed' }));
+          // Say why on the issue: it stays OPEN, and the reason (e.g. the request check's
+          // remaining gaps) is what the author needs to rephrase or retry.
+          const reason = mr.error_message ? `\n\n${mr.error_message.slice(0, 1500)}` : '';
+          await this.github
+            .issueComment(project.github_repo!, issue.number, `pj-gen n'a pas pu résoudre cette issue — elle reste ouverte.${reason}\n\n${AI_MENTION}`)
+            .catch(() => undefined);
+          this.emitIssue(repos.issues.patch(issue.id, { decision: 'failed', posted_comment_at: Date.now() }));
           continue;
         }
         if (mr.status !== 'done') continue;
@@ -451,10 +457,15 @@ export class IssuePoller {
     const { repos } = this.deps;
     const task = mr.task_key ? repos.tasks.get(project.id, mr.task_key) : undefined;
     const sha = task?.commit_sha ? ` (commit \`${task.commit_sha.slice(0, 10)}\`)` : '';
+    // Verdict of the request check (pipeline step request_check), when one ran.
+    const check = mr.task_key ? this.deps.ws.readFile(project.workspace_path, `docs/request-checks/${mr.task_key.toLowerCase()}.md`) : null;
+    const checkLines = check ? check.content.split('\n').slice(2).join('\n').trim().slice(0, 1500) : '';
     const body = [
       `Correctif appliqué${sha} : **${task?.title ?? mr.request.slice(0, 100)}**`,
       '',
       task?.description ? task.description.slice(0, 600) : '',
+      '',
+      checkLines ? `**Contrôle de la demande** :\n\n${checkLines}` : '',
       '',
       caveat ? `⚠️ ${caveat}` : '',
       '',

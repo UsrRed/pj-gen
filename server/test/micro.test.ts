@@ -56,10 +56,12 @@ describe('live micro-modifications', () => {
     const after = c.repos.projects.byId(id)!;
     expect(after.pipeline_mode).toBe('full');
 
-    // Only the reduced pipeline ran: implement_task on T04 — no design/arch/polish/docs re-run
-    // (final_verify verifies directly and only spawns a session on failure → no run row here).
+    // Only the reduced pipeline ran: implement_task on T04, then the request check — no
+    // design/arch/polish/docs re-run (final_verify verifies directly and only spawns a
+    // session on failure → no run row here).
     const newRuns = c.repos.stepRuns.listForProject(id).filter((r) => !runIdsBefore.has(r.id));
-    expect(newRuns.map((r) => r.step_key)).toEqual(['implement_task']);
+    expect(newRuns.map((r) => r.step_key)).toEqual(['implement_task', 'request_check']);
+    expect(newRuns[1].task_key).toBe('check-t04');
     expect(newRuns[0].task_key).toBe('T04');
 
     // Task done, request settled, SPEC updated.
@@ -108,7 +110,7 @@ describe('implement_task prompt for GitHub-auto issue micro-requests (T10)', () 
   it('issue-sourced fix on an auto-mode project gets the tests/docs instruction', async () => {
     let capturedPrompt: string | undefined;
     const script = fastScript((spec) => {
-      if (spec.tools !== 'none' && spec.prompt.includes('Micro-modification simulée')) {
+      if (spec.tools === 'default' && spec.prompt.includes('Micro-modification simulée')) {
         capturedPrompt = spec.prompt;
       }
       return undefined;
@@ -133,7 +135,7 @@ describe('implement_task prompt for GitHub-auto issue micro-requests (T10)', () 
   it('manual micro request does not get the GitHub-auto tests/docs instruction', async () => {
     let capturedPrompt: string | undefined;
     const script = fastScript((spec) => {
-      if (spec.tools !== 'none' && spec.prompt.includes('Micro-modification simulée')) {
+      if (spec.tools === 'default' && spec.prompt.includes('Micro-modification simulée')) {
         capturedPrompt = spec.prompt;
       }
       return undefined;
@@ -155,7 +157,7 @@ describe('implement_task prompt for GitHub-auto issue micro-requests (T10)', () 
   it('issue-sourced fix on a project WITHOUT auto mode does not get the instruction', async () => {
     let capturedPrompt: string | undefined;
     const script = fastScript((spec) => {
-      if (spec.tools !== 'none' && spec.prompt.includes('Micro-modification simulée')) {
+      if (spec.tools === 'default' && spec.prompt.includes('Micro-modification simulée')) {
         capturedPrompt = spec.prompt;
       }
       return undefined;
@@ -197,7 +199,7 @@ describe('shouldEscalateMicro (T06 scope decision)', () => {
 describe('micro pipeline failure escalates to the full pipeline (T06)', () => {
   it('a scope-exceeding micro request that fails is escalated via reopen instead of staying failed', async () => {
     const script = fastScript((spec) => {
-      if (spec.tools !== 'none' && spec.prompt.includes('Micro-modification simulée')) {
+      if (spec.tools === 'default' && spec.prompt.includes('Micro-modification simulée')) {
         return { result: { outcome: 'failure', failure: { kind: 'crash', message: 'boom (simulation)' } } };
       }
       return undefined;
@@ -226,7 +228,7 @@ describe('micro pipeline failure escalates to the full pipeline (T06)', () => {
 
   it('an ordinary micro-task failure (no scope signal) stays a plain failure — no reopen', async () => {
     const script = fastScript((spec) => {
-      if (spec.tools !== 'none' && spec.prompt.includes('Micro-modification simulée')) {
+      if (spec.tools === 'default' && spec.prompt.includes('Micro-modification simulée')) {
         return { result: { outcome: 'failure', failure: { kind: 'crash', message: 'boom (simulation)' } } };
       }
       return undefined;

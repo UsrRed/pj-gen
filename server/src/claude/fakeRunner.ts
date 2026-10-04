@@ -169,6 +169,18 @@ body{font-family:system-ui,sans-serif;background:var(--bg);color:var(--fg);margi
       },
     };
   }
+  if (props.has('needs')) {
+    return {
+      delayMs: 500,
+      result: {
+        outcome: 'success',
+        structured: {
+          needs: [{ need: 'Le changement demandé est visible (simulation)', status: 'ok', evidence: 'simulation — constaté', fix_hint: '' }],
+          summary: 'Demande satisfaite (simulation).',
+        },
+      },
+    };
+  }
   if (props.has('tasks')) {
     return {
       delayMs: 900,

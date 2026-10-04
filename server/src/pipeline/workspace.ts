@@ -256,6 +256,39 @@ export class WorkspaceManager {
     await git(workspace, this.config, ['reset', '--hard', sha]);
   }
 
+  /**
+   * Everything that changed since a task was requested: from the orchestrator's
+   * `docs: micro request <tk>` commit (or, for a task appended to a running build, the
+   * parent of its first `(<tk>)` commit) to HEAD, orchestrator bookkeeping excluded.
+   * Null when no base commit can be found.
+   */
+  async diffForTask(workspace: string, taskKey: string, maxChars = 15_000): Promise<string | null> {
+    const tk = taskKey.toLowerCase();
+    const first = async (args: string[]): Promise<string | null> => {
+      try {
+        const { stdout } = await git(workspace, this.config, args);
+        return stdout.trim().split('\n')[0] || null;
+      } catch {
+        return null;
+      }
+    };
+    let base = await first(['log', '--format=%H', '-n', '1', `--grep=^docs: micro request ${tk}$`]);
+    if (!base) {
+      const firstTaskCommit = await first(['log', '--reverse', '--format=%H', `--grep=(${tk})`]);
+      if (firstTaskCommit) base = `${firstTaskCommit}^`;
+    }
+    if (!base) return null;
+    const paths = ['--', '.', ':(exclude)docs/tasks.json', ':(exclude)docs/PROGRESS.md', ':(exclude)docs/request-checks', ':(exclude)package-lock.json'];
+    try {
+      const stat = (await git(workspace, this.config, ['diff', '--stat', base, 'HEAD', ...paths])).stdout;
+      const patch = (await git(workspace, this.config, ['diff', base, 'HEAD', ...paths])).stdout;
+      const out = `${stat}\n${patch}`;
+      return out.length > maxChars ? `${out.slice(0, maxChars)}\n… (diff tronqué)` : out;
+    } catch {
+      return null;
+    }
+  }
+
   async hasNewCommitSince(workspace: string, sha: string | null): Promise<boolean> {
     const head = await this.headSha(workspace);
     return head !== null && head !== sha;

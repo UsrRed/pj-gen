@@ -16,6 +16,7 @@ import {
   stepTestHardening,
   stepReviewFix,
   stepFeatureCheck,
+  stepRequestCheck,
   stepDocs,
   stepFinalVerify,
   haltMode,
@@ -53,6 +54,7 @@ const STEP_FNS: Record<Exclude<StepKey, 'deploy' | 'micro'>, (ctx: StepCtx) => P
   test_hardening: stepTestHardening,
   review_fix: stepReviewFix,
   feature_check: stepFeatureCheck,
+  request_check: stepRequestCheck,
   docs: stepDocs,
   final_verify: stepFinalVerify,
 };
@@ -141,7 +143,9 @@ export class Engine {
       }
       if (flow.status === 'halted') return this.finishHalted(projectId, flow.mode);
       this.sm.tryTransition(projectId, ['building'], 'failed', { error_message: `${stepKey}: ${flow.message}` });
-      const settled = this.settleMicroRequests(projectId);
+      // A failed cycle never settles its requests as done, even when their task is done:
+      // otherwise a fix rejected by request_check/final_verify would still close its issue.
+      const settled = this.settleMicroRequests(projectId, `${stepKey}: ${flow.message}`);
       if (isMicro && (await this.tryEscalateMicro(projectId, stepKey, settled, flow.message))) return 'escalated';
       this.emitProject(projectId);
       return 'failed';
@@ -174,8 +178,8 @@ export class Engine {
   }
 
   /** Mark open micro requests done/failed from their task status and broadcast them. */
-  private settleMicroRequests(projectId: string) {
-    const settled = this.deps.repos.micro.settleForProject(projectId);
+  private settleMicroRequests(projectId: string, cycleFailure?: string) {
+    const settled = this.deps.repos.micro.settleForProject(projectId, cycleFailure);
     for (const r of settled) this.deps.bus.emit('micro.updated', projectId, { request: toMicroDto(r) });
     return settled;
   }

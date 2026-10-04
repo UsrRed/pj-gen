@@ -19,6 +19,9 @@ import {
   FeatureAuditZ,
   FEATURE_AUDIT_JSON_SCHEMA,
   type FeatureAudit,
+  RequestCheckZ,
+  REQUEST_CHECK_JSON_SCHEMA,
+  type RequestCheck,
 } from '../prompts/schemas.js';
 import {
   archPrompt,
@@ -36,6 +39,8 @@ import {
   polishPrompt,
   featureAuditPrompt,
   featureFixPrompt,
+  requestCheckPrompt,
+  requestFixPrompt,
   designPrompt,
   designBenchmarkPrompt,
   designExcerptBlock,
@@ -50,7 +55,7 @@ import { profileFor } from './sizing.js';
 import { accessBlock } from '../prompts/access.js';
 import { blockingEdges, dagWidth, overlappingPairs, pickBatch, readySet } from './taskBatch.js';
 import { releaseAll } from '../core/sessionPool.js';
-import { toAccessDto, toTaskDto } from '../db/repos/index.js';
+import { toAccessDto, toTaskDto, type MicroRequestRow } from '../db/repos/index.js';
 
 export type StepFlow =
   | { status: 'ok' }
@@ -935,6 +940,125 @@ export async function stepFeatureCheck(ctx: StepCtx): Promise<StepFlow> {
     // even if the fix session failed, the next audit decides
   }
   return { status: 'failed', message: 'audit des fonctionnalités non conclusif' };
+}
+
+/**
+ * Fix rounds the request check may spend per request before giving up. Bounded on purpose:
+ * past it the request settles as failed (the GitHub issue stays open with the remaining
+ * gaps) instead of looping on a change the pipeline cannot land.
+ */
+export const REQUEST_CHECK_FIX_ROUNDS = 2;
+
+/**
+ * Request check: for every open micro request (manual or GitHub issue) whose task is done,
+ * a read-only session judges whether the change REALLY answers the request as the user will
+ * see it on the deployed instance — not just "a commit exists". Gaps → bounded fix session →
+ * re-check. Without this, a task that only diagnosed the problem, or fixed code whose effect
+ * needs a data re-import nobody triggers, settled as done and closed its issue.
+ */
+export async function stepRequestCheck(ctx: StepCtx): Promise<StepFlow> {
+  const { repos } = ctx.deps;
+  const open = repos.micro.open(ctx.projectId).filter((r) => r.task_key);
+  if (!open.length) return { status: 'ok' };
+  const stack = ctx.getStack();
+  if (!stack) return { status: 'failed', message: 'stack inconnue' };
+  for (const mr of open) {
+    const row = repos.tasks.get(ctx.projectId, mr.task_key!);
+    // An unfinished task already settles its request as failed — nothing to judge.
+    if (!row || row.status !== 'done') continue;
+    const flow = await checkOneRequest(ctx, mr, toTaskDto(row), stack);
+    if (flow.status !== 'ok') return flow;
+  }
+  return { status: 'ok' };
+}
+
+async function checkOneRequest(ctx: StepCtx, mr: MicroRequestRow, task: TaskDto, stack: StackInfo): Promise<StepFlow> {
+  const { ws, bus, repos } = ctx.deps;
+  const tk = task.taskKey.toLowerCase();
+  const reportPath = `docs/request-checks/${tk}.md`;
+  const project = repos.projects.byId(ctx.projectId);
+
+  for (let round = 0; round <= REQUEST_CHECK_FIX_ROUNDS; round++) {
+    if (ctx.signal.aborted) return { status: 'halted', mode: haltMode(ctx.signal) };
+
+    let verdict: RequestCheck | null = null;
+    const diff = await ws.diffForTask(ctx.workspace, task.taskKey);
+    const { result } = await executeClaudeRun(ctx.deps, {
+      projectId: ctx.projectId,
+      stepKey: 'request_check',
+      taskKey: `check-${tk}`,
+      attempt: round + 1,
+      isLastAttempt: round === REQUEST_CHECK_FIX_ROUNDS,
+      session: { id: newSessionId(), resume: false, kind: 'step' },
+      signal: ctx.signal,
+      spec: {
+        ...baseSpec(ctx, 'request_check'),
+        appendSystemPrompt: commonSystemPrompt(capsFor(repos, 'request_check', project)),
+        prompt: requestCheckPrompt({
+          request: mr.request,
+          untrusted: mr.source === 'issue',
+          task: { key: task.taskKey, title: task.title, description: task.description, acceptance: task.acceptance },
+          diff,
+        }),
+        // Read-only: the request may be untrusted issue text, and judging needs no writes.
+        tools: ['Read', 'Grep', 'Glob'],
+        jsonSchema: REQUEST_CHECK_JSON_SCHEMA,
+      },
+      validate: async (r) => {
+        const parsed = extractStructured(RequestCheckZ, r.structured, r.resultText);
+        if (!parsed.ok) return { ok: false, kind: 'schema_invalid', message: `contrôle invalide: ${parsed.error}` };
+        verdict = parsed.data;
+        return { ok: true };
+      },
+    });
+
+    if (result.outcome !== 'success' || !verdict) {
+      const f = result.failure!;
+      if (f.kind === 'usage_limit') return { status: 'parked' };
+      if (f.kind === 'canceled') return { status: 'halted', mode: haltMode(ctx.signal) };
+      if (f.kind === 'auth') return { status: 'failed', message: f.message };
+      if (round === REQUEST_CHECK_FIX_ROUNDS) return { status: 'failed', message: `contrôle de la demande impossible (${task.taskKey}): ${f.message}` };
+      continue;
+    }
+
+    const v: RequestCheck = verdict;
+    const gaps = v.needs.filter((n) => n.status !== 'ok');
+    const md = [
+      `# Contrôle de la demande — ${task.taskKey}, passe ${round + 1}`,
+      '',
+      v.summary,
+      '',
+      '| Besoin | Statut | Constat |',
+      '|---|---|---|',
+      ...v.needs.map((n) => `| ${n.need.replace(/[|\n]/g, ' ')} | ${n.status} | ${n.evidence.replace(/[|\n]/g, ' ').slice(0, 300)} |`),
+      '',
+    ].join('\n');
+    ws.writeFile(ctx.workspace, reportPath, md);
+    await ws.commitAll(ctx.workspace, `docs: request check ${tk} pass ${round + 1}`);
+    bus.emit('artifact.updated', ctx.projectId, { path: reportPath });
+
+    if (!gaps.length) return { status: 'ok' };
+    if (round === REQUEST_CHECK_FIX_ROUNDS) {
+      const list = gaps.map((g) => `[${g.status}] ${g.need}${g.fix_hint ? ` — ${g.fix_hint}` : ''}`).join(' ; ');
+      return {
+        status: 'failed',
+        message: `demande non satisfaite après ${REQUEST_CHECK_FIX_ROUNDS} corrections (${task.taskKey}, voir ${reportPath}): ${list}`.slice(0, 1500),
+      };
+    }
+
+    const fix = await runToolStep(ctx, {
+      stepKey: 'request_check',
+      taskKey: `fix-${tk}-${round + 1}`,
+      capKey: 'implement_task',
+      buildPrompt: (_attempt, tail) => requestFixPrompt({ key: task.taskKey, title: task.title }, gaps, stack, tail),
+      verifyKinds: ['test', 'build'],
+      requireNewCommit: false,
+      maxAttempts: 1,
+    });
+    if (fix.status === 'parked' || fix.status === 'halted') return fix;
+    // even if the fix session failed, the next check decides
+  }
+  return { status: 'failed', message: `contrôle de la demande non conclusif (${task.taskKey})` };
 }
 
 export async function stepTestHardening(ctx: StepCtx): Promise<StepFlow> {

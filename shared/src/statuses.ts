@@ -51,6 +51,7 @@ export const STEP_KEYS = [
   'test_hardening',
   'review_fix',
   'feature_check',
+  'request_check',
   'docs',
   'final_verify',
   'deploy',
@@ -70,12 +71,16 @@ export const PIPELINE_ORDER: StepKey[] = [
   'test_hardening',
   'review_fix',
   'feature_check',
+  'request_check',
   'docs',
   'final_verify',
 ];
 
-/** Reduced pipeline for live micro-modifications: implement the appended task(s), then verify. */
-export const MICRO_PIPELINE_ORDER: StepKey[] = ['implement_task', 'final_verify'];
+/**
+ * Reduced pipeline for live micro-modifications: implement the appended task(s), check the
+ * result really answers the request (bounded fix loop), then verify.
+ */
+export const MICRO_PIPELINE_ORDER: StepKey[] = ['implement_task', 'request_check', 'final_verify'];
 
 export type PipelineMode = 'full' | 'micro';
 

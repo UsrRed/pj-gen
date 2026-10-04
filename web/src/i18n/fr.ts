@@ -43,6 +43,7 @@ export const STEP_LABELS: Record<StepKey, string> = {
   test_hardening: 'Durcissement tests',
   review_fix: 'Revue & corrections',
   feature_check: 'Audit de conformité',
+  request_check: 'Contrôle de la demande',
   docs: 'Documentation',
   final_verify: 'Vérification finale',
   deploy: 'Déploiement',

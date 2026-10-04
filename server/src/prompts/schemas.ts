@@ -349,6 +349,50 @@ export const FEATURE_AUDIT_JSON_SCHEMA = {
 };
 
 /**
+ * Verdict of the request check (micro requests / GitHub issues): does the change that just
+ * landed REALLY answer what was asked, as the user will see it on the deployed instance?
+ */
+export const RequestCheckItemZ = z.object({
+  need: z.string().min(1),
+  status: z.enum(['ok', 'partial', 'missing']),
+  evidence: z.string(),
+  fix_hint: z.string(),
+});
+export const RequestCheckZ = z.object({
+  needs: z.array(RequestCheckItemZ).min(1),
+  summary: z.string(),
+});
+export type RequestCheck = z.infer<typeof RequestCheckZ>;
+export type RequestCheckItem = z.infer<typeof RequestCheckItemZ>;
+
+export const REQUEST_CHECK_JSON_SCHEMA = {
+  type: 'object',
+  properties: {
+    needs: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          need: { type: 'string', description: 'Un besoin observable exprimé par la demande, reformulé' },
+          status: {
+            type: 'string',
+            enum: ['ok', 'partial', 'missing'],
+            description: "ok = l'utilisateur constatera le changement sur l'instance déployée, sans action manuelle",
+          },
+          evidence: { type: 'string', description: 'Fichiers/lignes/tests précis constatés' },
+          fix_hint: { type: 'string', description: 'Quoi faire concrètement ("" si ok)' },
+        },
+        required: ['need', 'status', 'evidence', 'fix_hint'],
+        additionalProperties: false,
+      },
+    },
+    summary: { type: 'string', description: 'Une phrase de verdict' },
+  },
+  required: ['needs', 'summary'],
+  additionalProperties: false,
+};
+
+/**
  * Verdict of the isolated security filter run on a GitHub issue before any auto-routing
  * (micro or reopen). Scope is narrow on purpose: only an objective to harm pj-gen itself
  * or the build machine is malicious — an unusual or aggressive PRODUCT request is not.

@@ -78,10 +78,12 @@ export class MicroRepo {
   }
 
   /**
-   * Settle open requests from their task status at the end of a build cycle:
-   * task done → 'done', task failed/missing → 'failed'. Returns the settled rows.
+   * Settle open requests at the end of a build cycle: task done → 'done', task failed/missing
+   * → 'failed'. A failed cycle (`cycleFailure`) settles every open request as 'failed' with
+   * that reason, whatever its task status — a done task is not a satisfied request.
+   * Returns the settled rows.
    */
-  settleForProject(projectId: string): MicroRequestRow[] {
+  settleForProject(projectId: string, cycleFailure?: string): MicroRequestRow[] {
     const settled: MicroRequestRow[] = [];
     for (const r of this.open(projectId)) {
       const task = r.task_key
@@ -89,8 +91,9 @@ export class MicroRepo {
             | { status: string }
             | undefined)
         : undefined;
-      const ok = task?.status === 'done';
-      settled.push(this.patch(r.id, { status: ok ? 'done' : 'failed', error_message: ok ? null : (r.error_message ?? 'tâche non terminée') }));
+      const ok = task?.status === 'done' && !cycleFailure;
+      const reason = cycleFailure ?? r.error_message ?? 'tâche non terminée';
+      settled.push(this.patch(r.id, { status: ok ? 'done' : 'failed', error_message: ok ? null : reason }));
     }
     return settled;
   }

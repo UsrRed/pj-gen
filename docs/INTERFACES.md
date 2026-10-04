@@ -1,7 +1,7 @@
 ## Types partagés clés (`shared/src`)
 
 - `ProjectStatus` (statuses.ts) : `draft | spec_ready | queued | building | paused_limit | paused_user | interrupted | failed | awaiting_deploy_approval | deploying | deploy_failed | deployed | canceled`, avec `PROJECT_TRANSITIONS` (machine à états CAS) et `REOPENABLE_STATUSES`.
-- `StepKey` : `design_benchmark | design | architecture | task_breakdown | scaffold | implement_task | polish | test_hardening | review_fix | feature_check | docs | final_verify | deploy | micro`. `PIPELINE_ORDER` (12 étapes autonomes) vs `MICRO_PIPELINE_ORDER` (`implement_task, final_verify`).
+- `StepKey` : `design_benchmark | design | architecture | task_breakdown | scaffold | implement_task | polish | test_hardening | review_fix | feature_check | request_check | docs | final_verify | deploy | micro`. `PIPELINE_ORDER` (13 étapes autonomes) vs `MICRO_PIPELINE_ORDER` (`implement_task, request_check, final_verify`).
 - `TaskDto` : `{ taskKey, position, title, description, filesHint[], writes[], acceptance[], dependsOn[], after[], phase: TaskPhase, status, commitSha, worktreeDir? }`. `TaskPhase = foundation | core | polish`.
 - `ProjectSize = small | mvp | large | enterprise` (figé à la validation du SPEC).
 - `TokenUsage = { input, output, cacheCreation, cacheRead, total }`.
@@ -70,7 +70,9 @@ Implémentations : `claude/runner.ts` (`createRealRunner`, spawn `claude` CLI, s
 interface StepCtx { deps: CoreDeps; projectId: string; workspace: string; signal: AbortSignal; getStack(): StackInfo|null; setStack(s): void; }
 type StepFlow = { status: 'ok' } | { status: 'parked' } | { status: 'halted'; mode: 'pause'|'cancel' } | { status: 'failed'; message: string };
 ```
-12 fonctions exportées (une par `StepKey` hors `deploy`/`micro`), enregistrées dans `STEP_FNS` (`pipeline/engine.ts`). Sortie structurée validée par les schémas zod de `prompts/schemas.ts` (ex. `ArchOutputZ`, `BreakdownOutputZ`, `FeatureAuditZ`), prompts construits par `prompts/steps.ts`.
+13 fonctions exportées (une par `StepKey` hors `deploy`/`micro`), enregistrées dans `STEP_FNS` (`pipeline/engine.ts`). Sortie structurée validée par les schémas zod de `prompts/schemas.ts` (ex. `ArchOutputZ`, `BreakdownOutputZ`, `FeatureAuditZ`, `RequestCheckZ`), prompts construits par `prompts/steps.ts`.
+
+**Contrôle de la demande (`request_check`)** : pour chaque micro-requête ouverte (manuelle ou issue GitHub) dont la tâche est `done`, `stepRequestCheck` lance une session en lecture seule (`tools: ['Read','Grep','Glob']`, la demande d'une issue reste une donnée non fiable) avec la demande d'origine, la tâche et `WorkspaceManager.diffForTask` (diff depuis le commit `docs: micro request <tk>`). Verdict `RequestCheckZ` → `{ needs: [{ need, status: ok|partial|missing, evidence, fix_hint }], summary }`, écrit dans `docs/request-checks/<tk>.md`. Écarts → session de correction (`requestFixPrompt`, caps d'`implement_task`) puis nouveau contrôle, au plus `REQUEST_CHECK_FIX_ROUNDS` (2) corrections ; au-delà, l'étape échoue. `MicroRepo.settleForProject(projectId, cycleFailure?)` : un cycle en échec solde ses requêtes en `failed` même si leur tâche est `done` — l'issue reste ouverte avec un commentaire donnant la raison ; une issue close reprend le verdict du contrôle dans son commentaire.
 
 ## Schéma SQLite (tables principales)
 
