@@ -40,6 +40,7 @@ async function main(): Promise<void> {
   recoverOnBoot(c);
   c.scheduler.start();
   c.issuePoller.start();
+  c.repoSync.start();
 
   const app = await createApp(c);
   await app.listen({ port: config.port, host: config.host });

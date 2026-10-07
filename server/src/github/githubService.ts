@@ -328,6 +328,52 @@ export class GithubService {
     }
   }
 
+  /**
+   * Brings a workspace that fell behind its GitHub remote up to date (commits pushed straight to the
+   * repo, outside pj-gen): fast-forward when it has nothing of its own, a merge commit when both
+   * sides moved. Never touches a workspace a session may be working in, nor one with uncommitted
+   * changes, and a real conflict aborts cleanly (the workspace is left exactly as it was).
+   */
+  async pullIfBehind(projectId: string): Promise<'uptodate' | 'fast-forward' | 'merged' | 'skipped' | 'conflict'> {
+    const { repos, mutex, bus } = this.deps;
+    return mutex.run(projectId, async () => {
+      const project = repos.projects.byId(projectId);
+      if (!project?.github_repo || BUSY_STATUSES.includes(project.status)) return 'skipped';
+      const cwd = project.workspace_path;
+      const log = (line: string) => bus.emitTransient('app.log', projectId, { lines: [`[github sync] ${line}`] });
+      try {
+        const branch = (await this.git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim();
+        if (!branch || branch === 'HEAD') return 'skipped'; // detached or recovery state: not ours to move
+        if (fs.existsSync(path.join(cwd, '.git', 'MERGE_HEAD'))) return 'skipped';
+        const sync = await this.syncState(project);
+        if (!sync.behind) return 'uptodate'; // null = fetch failed, 0 = nothing to take
+        if ((await this.git(cwd, ['status', '--porcelain'])).trim()) {
+          log(`${sync.behind} commit(s) en retard mais le workspace a des changements non commités : synchronisation reportée`);
+          return 'skipped';
+        }
+        if (!sync.ahead) {
+          await this.git(cwd, ['merge', '--ff-only', `origin/${branch}`], 30_000);
+          log(`${sync.behind} commit(s) récupéré(s) depuis origin/${branch} (fast-forward)`);
+          this.emitProject(projectId);
+          return 'fast-forward';
+        }
+        try {
+          await this.git(cwd, ['merge', '--no-edit', `origin/${branch}`], 30_000);
+        } catch {
+          await this.git(cwd, ['merge', '--abort']).catch(() => undefined);
+          log(`conflit entre ${sync.ahead} commit(s) locaux et ${sync.behind} commit(s) distants : résolution manuelle nécessaire, workspace inchangé`);
+          return 'conflict';
+        }
+        log(`origin/${branch} fusionné (${sync.behind} commit(s) distants, ${sync.ahead} locaux)`);
+        this.emitProject(projectId);
+        return 'merged';
+      } catch (err) {
+        log(`échec : ${(err as Error).message?.slice(0, 200)}`);
+        return 'skipped';
+      }
+    });
+  }
+
   /** ahead/behind vs the current branch's remote counterpart (best-effort: null on fetch failure). */
   async syncState(project: ProjectRow): Promise<SyncState> {
     try {

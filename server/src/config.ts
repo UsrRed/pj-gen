@@ -19,6 +19,8 @@ export interface Config {
   /** Static dir of the built web UI (served in prod when present). */
   webDist: string;
   schedulerTickMs: number;
+  /** Period of the automatic fetch+merge of workspaces that fell behind their GitHub remote; 0 disables it. */
+  repoSyncMs: number;
   /**
    * Aperçu relay listener (preview/previewProxy.ts), bound on `host`; null = disabled.
    * `previewPublicPort` is the port browsers reach it on when something (tailscale serve…)
@@ -53,6 +55,7 @@ export function loadConfig(overrides: Partial<Config> = {}): Config {
     gitAuthorEmail: 'redefendeur@gmail.com',
     webDist: path.resolve(import.meta.dirname, '../../web/dist'),
     schedulerTickMs: Number(process.env.PJGEN_TICK_MS ?? 30_000),
+    repoSyncMs: Number(process.env.PJGEN_REPO_SYNC_MS ?? 300_000),
     previewPort: optionalPort(process.env.PJGEN_PREVIEW_PORT),
     previewPublicPort: optionalPort(process.env.PJGEN_PREVIEW_PUBLIC_PORT ?? process.env.PJGEN_PREVIEW_PORT),
     logFlushMs: 250,

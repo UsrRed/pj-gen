@@ -19,6 +19,7 @@ import { DeployService } from './deploy/deployService.js';
 import { MicroService } from './micro/microService.js';
 import { GithubService } from './github/githubService.js';
 import { IssuePoller } from './github/issuePoller.js';
+import { RepoSync } from './github/repoSync.js';
 import { Notifier, type SendFn } from './core/notifier.js';
 import { AppRunner } from './preview/appRunner.js';
 import { LanExposure } from './core/lanExposure.js';
@@ -37,6 +38,7 @@ export interface Container extends CoreDeps {
   micro: MicroService;
   github: GithubService;
   issuePoller: IssuePoller;
+  repoSync: RepoSync;
   notifier: Notifier;
   appRunner: AppRunner;
   lan: LanExposure;
@@ -88,6 +90,7 @@ export async function buildContainer(config: Config, overrides: ContainerOverrid
   const micro = new MicroService(deps);
   const github = new GithubService(deps);
   const issuePoller = new IssuePoller(deps, github, micro, spec);
+  const repoSync = new RepoSync(deps, github);
   const notifier = new Notifier(repos, overrides.notifySend);
   notifier.attach(bus);
   const appRunner = new AppRunner(deps);
@@ -114,6 +117,7 @@ export async function buildContainer(config: Config, overrides: ContainerOverrid
     micro,
     github,
     issuePoller,
+    repoSync,
     notifier,
     appRunner,
     lan,
@@ -121,6 +125,7 @@ export async function buildContainer(config: Config, overrides: ContainerOverrid
     close: () => {
       webConsole.kill();
       issuePoller.stop();
+      repoSync.stop();
       scheduler?.stop();
       appRunner.stopAll();
       void lan.disable();
