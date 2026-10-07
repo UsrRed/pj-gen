@@ -127,6 +127,19 @@ export function ConsolePage() {
     termRef.current?.focus();
   };
 
+  const paste = () => {
+    const term = termRef.current;
+    if (!term) return;
+    // term.paste() applies bracketed-paste mode and routes through onData like a real paste.
+    navigator.clipboard
+      .readText()
+      .then((text) => {
+        if (text) term.paste(text);
+        term.focus();
+      })
+      .catch(() => setError(T.consolePasteDenied));
+  };
+
   const recheck = () => {
     setAuthMsg(null);
     void api
@@ -153,6 +166,9 @@ export function ConsolePage() {
             {q.label}
           </button>
         ))}
+        <button className="btn-ghost !px-2.5 !py-1 text-xs" disabled={!running} onClick={paste}>
+          📋 {T.consolePaste}
+        </button>
         <button className="btn-ghost !px-2.5 !py-1 text-xs" onClick={recheck}>
           {T.consoleRecheckAuth}
         </button>

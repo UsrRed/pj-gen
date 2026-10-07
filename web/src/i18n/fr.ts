@@ -439,6 +439,8 @@ gh auth login
   consoleKillConfirm: 'Confirmer la fermeture',
   consoleExited: (code: number | null) => `[shell terminé${code !== null ? `, code ${code}` : ''}]`,
   consoleRecheckAuth: "Revérifier l'auth claude",
+  consolePaste: 'Coller',
+  consolePasteDenied: "Lecture du presse-papier refusée ou indisponible (HTTPS et autorisation du navigateur requis).",
   consoleAuthOk: (detail: string) => `✓ claude authentifié${detail ? ` — ${detail}` : ''}`,
   consoleAuthKo: (detail: string) => `✗ claude non authentifié${detail ? ` — ${detail}` : ''}`,
 };
