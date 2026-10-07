@@ -25,6 +25,7 @@ export function ConsolePage() {
   const [status, setStatus] = useState<ConsoleStatusDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [authMsg, setAuthMsg] = useState<string | null>(null);
+  const [pasteBox, setPasteBox] = useState<string | null>(null);
 
   const start = useCallback(() => {
     const term = termRef.current;
@@ -127,17 +128,25 @@ export function ConsolePage() {
     termRef.current?.focus();
   };
 
-  const paste = () => {
+  const sendPaste = (text: string) => {
     const term = termRef.current;
-    if (!term) return;
+    if (!term || !text) return;
     // term.paste() applies bracketed-paste mode and routes through onData like a real paste.
+    term.paste(text);
+    term.focus();
+  };
+
+  const paste = () => {
+    // navigator.clipboard is undefined outside secure contexts (plain http) and readText is
+    // denied without permission — both fall back to a manual paste box.
+    if (!navigator.clipboard?.readText) {
+      setPasteBox('');
+      return;
+    }
     navigator.clipboard
       .readText()
-      .then((text) => {
-        if (text) term.paste(text);
-        term.focus();
-      })
-      .catch(() => setError(T.consolePasteDenied));
+      .then((text) => sendPaste(text))
+      .catch(() => setPasteBox(''));
   };
 
   const recheck = () => {
@@ -190,6 +199,34 @@ export function ConsolePage() {
 
       {authMsg && <div className="text-xs text-zinc-300">{authMsg}</div>}
       {(error || status?.reason) && <div className="text-sm text-red-400">⚠️ {error ?? status?.reason}</div>}
+
+      {pasteBox !== null && (
+        <div className="space-y-2">
+          <div className="text-xs text-zinc-400">{T.consolePasteManual}</div>
+          <textarea
+            autoFocus
+            className="w-full rounded border border-zinc-700 bg-zinc-900 p-2 font-mono text-xs"
+            rows={4}
+            value={pasteBox}
+            onChange={(e) => setPasteBox(e.target.value)}
+          />
+          <span className="flex gap-2">
+            <button
+              className="btn-primary !px-2.5 !py-1 text-xs"
+              disabled={!pasteBox}
+              onClick={() => {
+                sendPaste(pasteBox);
+                setPasteBox(null);
+              }}
+            >
+              {T.consolePasteSend}
+            </button>
+            <button className="btn-ghost !px-2.5 !py-1 text-xs" onClick={() => setPasteBox(null)}>
+              {T.consolePasteCancel}
+            </button>
+          </span>
+        </div>
+      )}
 
       <div className="card overflow-hidden p-2">
         <div ref={hostRef} className="h-[65vh] min-h-64 w-full" />

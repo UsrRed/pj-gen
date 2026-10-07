@@ -440,7 +440,9 @@ gh auth login
   consoleExited: (code: number | null) => `[shell terminé${code !== null ? `, code ${code}` : ''}]`,
   consoleRecheckAuth: "Revérifier l'auth claude",
   consolePaste: 'Coller',
-  consolePasteDenied: "Lecture du presse-papier refusée ou indisponible (HTTPS et autorisation du navigateur requis).",
+  consolePasteManual: 'Presse-papier inaccessible depuis le navigateur : colle ton texte ici (Ctrl+V), puis envoie-le au terminal.',
+  consolePasteSend: 'Envoyer au terminal',
+  consolePasteCancel: 'Annuler',
   consoleAuthOk: (detail: string) => `✓ claude authentifié${detail ? ` — ${detail}` : ''}`,
   consoleAuthKo: (detail: string) => `✗ claude non authentifié${detail ? ` — ${detail}` : ''}`,
 };
