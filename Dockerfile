@@ -30,6 +30,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/root/.local/bin:${PATH}"
+# Bibliothèques système de Chromium (Playwright) : sans elles (libglib, libnss3,
+# libgbm…), le chromium headless téléchargé par les projets ne démarre pas ; les
+# sessions ne peuvent jamais lancer les e2e et corrigent à l'aveugle une CI rouge
+# (observé sur wakfu-craft #62/#67/#68/#69). install-deps ne fait que de l'apt
+# (root requis, d'où ici) ; les navigateurs restent dans ~/.cache/ms-playwright.
+RUN npx --yes playwright@1.63.0 install-deps chromium \
+    && rm -rf /var/lib/apt/lists/* /root/.npm
 
 WORKDIR /app
 COPY --from=builder /app /app
