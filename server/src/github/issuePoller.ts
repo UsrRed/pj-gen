@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { REOPENABLE_STATUSES, type IssueDecision } from '@pjgen/shared';
 import type { CoreDeps } from '../core/deps.js';
 import type { GithubService } from './githubService.js';
+import { isWorkflowScopeRejection, WORKFLOW_SCOPE_MESSAGE } from './githubService.js';
 import type { MicroService } from '../micro/microService.js';
 import type { SpecService } from '../cadrage/specService.js';
 import type { AssetResult } from './issueAssets.js';
@@ -497,6 +498,18 @@ export class IssuePoller {
             continue; // manual flow: finalize only once the fix commit reached the remote
           }
         } catch (err) {
+          if (isWorkflowScopeRejection(err) || (err as Error).message === WORKFLOW_SCOPE_MESSAGE) {
+            // Not a defect of this fix: every publication is blocked until the user grants the
+            // scope. Stay 'fixing' (retried each tick, publishes by itself once granted) and say
+            // why once, instead of failing every issue one after the other.
+            if (!issue.posted_comment_at) {
+              await this.github
+                .issueComment(project.github_repo!, issue.number, `Correctif prêt localement, publication en attente : ${WORKFLOW_SCOPE_MESSAGE}\n\n${AI_MENTION}`)
+                .catch(() => undefined);
+              this.emitIssue(repos.issues.patch(issue.id, { posted_comment_at: Date.now() }));
+            }
+            continue;
+          }
           const detail = (err as Error).message?.slice(0, 500) ?? 'échec de synchronisation avec le dépôt distant';
           await this.github
             .issueComment(project.github_repo!, issue.number, `Correctif prêt localement mais impossible à publier sur GitHub : ${detail}\n\n${AI_MENTION}`)

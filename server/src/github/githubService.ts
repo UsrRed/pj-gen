@@ -68,6 +68,15 @@ export function ghCredentialEnv(ghBin: string, base: NodeJS.ProcessEnv): Record<
   };
 }
 
+/** GitHub refuses a push touching .github/workflows/ when the OAuth token lacks the `workflow` scope. */
+export const WORKFLOW_SCOPE_MESSAGE =
+  "GitHub refuse la publication : un commit modifie .github/workflows/ et le jeton gh n'a pas le scope `workflow`. Ouvre la Console de pj-gen et lance `gh auth refresh -h github.com -s workflow` : la publication reprend ensuite toute seule.";
+
+export function isWorkflowScopeRejection(err: unknown): boolean {
+  const e = err as { stderr?: string; message?: string } | undefined;
+  return /without `?workflow`? scope/.test(`${e?.stderr ?? ''}${e?.message ?? ''}`);
+}
+
 /**
  * GitHub integration via the `gh` CLI. pj-gen never touches a token: gh keeps
  * its own keyring; git identity (UsrRed) is forced through the env on every call.
@@ -235,6 +244,7 @@ export class GithubService {
     try {
       await this.git(cwd, ['push', 'origin', 'HEAD'], 60_000);
     } catch (err) {
+      if (isWorkflowScopeRejection(err)) throw conflict(WORKFLOW_SCOPE_MESSAGE);
       if (!this.isNonFastForward(err)) throw err;
       const branch = (await this.git(cwd, ['rev-parse', '--abbrev-ref', 'HEAD'])).trim() || 'main';
       await this.git(cwd, ['fetch', 'origin'], 30_000);

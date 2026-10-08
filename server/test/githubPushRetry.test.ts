@@ -130,3 +130,14 @@ describe('GithubService.push: auto-recovery from a diverged remote', () => {
     expect(remoteBranches).toMatch(/refs\/heads\/auto\/main-conflict-/); // work saved remotely for manual review
   });
 });
+
+describe('workflow-scope rejection', () => {
+  it('is recognised from the git stderr and has an actionable message', async () => {
+    const { isWorkflowScopeRejection, WORKFLOW_SCOPE_MESSAGE } = await import('../src/github/githubService.js');
+    const stderr =
+      ' ! [remote rejected] HEAD -> main (refusing to allow an OAuth App to create or update workflow `.github/workflows/e2e.yml` without `workflow` scope)';
+    expect(isWorkflowScopeRejection({ stderr })).toBe(true);
+    expect(isWorkflowScopeRejection({ stderr: '! [rejected] HEAD -> main (non-fast-forward)' })).toBe(false);
+    expect(WORKFLOW_SCOPE_MESSAGE).toContain('gh auth refresh');
+  });
+});

@@ -15,13 +15,14 @@ const GAP = {
   needs: [
     {
       need: 'Les icônes s’affichent sur l’instance déployée',
-      status: 'partial',
+      status: 'missing',
       evidence: 'mapper modifié mais IMPORTER_VERSION inchangée: les URL déjà stockées restent fausses',
       fix_hint: 'incrémenter IMPORTER_VERSION pour déclencher le réimport',
     },
   ],
   summary: 'Le code est corrigé mais les données existantes ne le seront pas.',
 };
+const PARTIAL = { ...GAP, needs: [{ ...GAP.needs[0], status: 'partial' }] };
 const OK = {
   needs: [{ need: 'Les icônes s’affichent sur l’instance déployée', status: 'ok', evidence: 'réimport déclenché au démarrage', fix_hint: '' }],
   summary: 'Demande satisfaite.',
@@ -75,6 +76,28 @@ describe('request_check step (micro pipeline)', () => {
 
     const ws = c.repos.projects.byId(id)!.workspace_path;
     expect(fs.readFileSync(path.join(ws, 'docs', 'request-checks', 't04.md'), 'utf8')).toContain('Demande satisfaite.');
+  });
+
+  it('residual partial gaps after the fix rounds are accepted: the request is done, not failed', async () => {
+    let checks = 0;
+    const { c } = await testContainer({
+      script: fastScript((spec) => {
+        if (isCheck(spec)) {
+          checks += 1;
+          return { delayMs: 10, result: { outcome: 'success', structured: PARTIAL } };
+        }
+        if (spec.tools === 'default' && spec.prompt.includes('Le contrôle de la demande a trouvé')) {
+          return { delayMs: 10, result: { outcome: 'success', resultText: 'tenté' } };
+        }
+        return undefined;
+      }),
+    });
+    cRef = c;
+    const id = await builtProject(c, 'Check Partial');
+
+    await c.micro.create(id, 'Corrige les icônes.');
+    await waitFor(() => c.repos.micro.list(id)[0].status === 'done', 20_000, 'requête terminée');
+    expect(checks).toBe(REQUEST_CHECK_FIX_ROUNDS + 1);
   });
 
   it('gives up after the max fix rounds: request failed with the gaps, never done, project not blocked', async () => {

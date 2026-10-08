@@ -1049,6 +1049,15 @@ async function checkOneRequest(ctx: StepCtx, mr: MicroRequestRow, task: TaskDto,
     bus.emit('artifact.updated', ctx.projectId, { path: reportPath });
 
     if (!gaps.length) return { status: 'ok' };
+    // The check is told to answer `partial` when in doubt, so a residual `partial` is a
+    // reviewer's reservation, not a missing feature: it must not leave the issue failed
+    // (and the whole queue blocked) once the fix rounds are spent. Only `missing` rejects.
+    if (round === REQUEST_CHECK_FIX_ROUNDS && !gaps.some((g) => g.status === 'missing')) {
+      bus.emitTransient('app.log', ctx.projectId, {
+        lines: [`[request_check] ${task.taskKey}: réserves restantes acceptées (aucun besoin absent) — voir ${reportPath}`],
+      });
+      return { status: 'ok' };
+    }
     if (round === REQUEST_CHECK_FIX_ROUNDS) {
       const list = gaps.map((g) => `[${g.status}] ${g.need}${g.fix_hint ? ` — ${g.fix_hint}` : ''}`).join(' ; ');
       return {
