@@ -427,6 +427,8 @@ gh auth login
   sIntegrationKeySave: 'Enregistrer la clé',
   sIntegrationKeySaved: 'Clé enregistrée ✓',
   console: 'Console',
+  unblock: 'Débloquer',
+  consoleAssist: 'Session de maintenance claude : diagnostique ce qui bloque (issues, projets, auth) et corrige',
   consoleTitle: 'Console',
   consoleHint:
     "Un shell dans l'environnement de pj-gen (même utilisateur, mêmes configurations gh et claude) — pour se réauthentifier quand un jeton expire, sans passer par l'hôte. Le shell survit au changement de page.",

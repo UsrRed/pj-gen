@@ -86,6 +86,9 @@ function Shell({ children }: { children: React.ReactNode }) {
             <Link to="/github" className="text-zinc-400 hover:text-zinc-100">
               🐙 {T.github}
             </Link>
+            <Link to="/console?debloquer=1" title={T.consoleAssist} className="text-amber-400 hover:text-amber-300">
+              🛠 {T.unblock}
+            </Link>
             <Link to="/console" className="text-zinc-400 hover:text-zinc-100">
               ⌨ {T.console}
             </Link>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -16,6 +17,10 @@ const QUICK_COMMANDS: { label: string; cmd: string }[] = [
   { label: 'claude auth status', cmd: 'claude auth status' },
 ];
 
+/** Interactive claude session pre-briefed with docs/MAINTENANCE.md (DB, API, repos, method). */
+const MAINTENANCE_CMD =
+  "cd /app && claude 'Lis /app/docs/MAINTENANCE.md puis diagnostique ce qui bloque dans pj-gen et les projets (issues, builds, auth, push), explique-le moi et propose/applique les correctifs.'";
+
 /** Keystrokes are coalesced for this long before one POST — a paste or a fast typist = one request. */
 const INPUT_FLUSH_MS = 8;
 
@@ -26,6 +31,8 @@ export function ConsolePage() {
   const [error, setError] = useState<string | null>(null);
   const [authMsg, setAuthMsg] = useState<string | null>(null);
   const [pasteBox, setPasteBox] = useState<string | null>(null);
+  const [params, setParams] = useSearchParams();
+  const assistPending = useRef(params.get('debloquer') === '1');
 
   const start = useCallback(() => {
     const term = termRef.current;
@@ -123,6 +130,18 @@ export function ConsolePage() {
     };
   }, [start]);
 
+  const running = status?.running ?? false;
+
+  // « 🛠 Débloquer » (header) lands here with ?debloquer=1: launch the maintenance session once the shell is up.
+  useEffect(() => {
+    if (!assistPending.current || !running) return;
+    assistPending.current = false;
+    setParams({}, { replace: true });
+    // Small delay: the freshly spawned bash must be ready to read the line.
+    const t = setTimeout(() => void api.consoleInput(`${MAINTENANCE_CMD}\r`).catch((e: Error) => setError(e.message)), 400);
+    return () => clearTimeout(t);
+  }, [running, setParams]);
+
   const type = (cmd: string) => {
     void api.consoleInput(`${cmd}\r`).catch((e: Error) => setError(e.message));
     termRef.current?.focus();
@@ -157,8 +176,6 @@ export function ConsolePage() {
       .catch((e: Error) => setAuthMsg(e.message));
   };
 
-  const running = status?.running ?? false;
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -170,6 +187,9 @@ export function ConsolePage() {
       <p className="text-sm text-zinc-400">{T.consoleHint}</p>
 
       <div className="flex flex-wrap items-center gap-2">
+        <button className="btn-primary !px-2.5 !py-1 text-xs" disabled={!running} title={T.consoleAssist} onClick={() => type(MAINTENANCE_CMD)}>
+          🛠 {T.unblock}
+        </button>
         {QUICK_COMMANDS.map((q) => (
           <button key={q.label} className="btn-ghost !px-2.5 !py-1 font-mono text-xs" disabled={!running} onClick={() => type(q.cmd)}>
             {q.label}
