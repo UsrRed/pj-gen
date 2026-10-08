@@ -21,6 +21,25 @@ const QUICK_COMMANDS: { label: string; cmd: string }[] = [
 const MAINTENANCE_CMD =
   "cd /app && claude 'Lis /app/docs/MAINTENANCE.md puis diagnostique ce qui bloque dans pj-gen et les projets (issues, builds, auth, push), explique-le moi et propose/applique les correctifs.'";
 
+/** On-screen keys for touch/mobile: a phone keyboard has no arrows (claude's trust/permission menus need them). */
+const KEYS: { label: string; seq: string; title: string }[] = [
+  { label: '↑', seq: '\x1b[A', title: 'Flèche haut' },
+  { label: '↓', seq: '\x1b[B', title: 'Flèche bas' },
+  { label: '←', seq: '\x1b[D', title: 'Flèche gauche' },
+  { label: '→', seq: '\x1b[C', title: 'Flèche droite' },
+  { label: '⏎', seq: '\r', title: 'Entrée' },
+  { label: 'Esc', seq: '\x1b', title: 'Échap' },
+  { label: 'Tab', seq: '\t', title: 'Tabulation' },
+  { label: '⇧Tab', seq: '\x1b[Z', title: 'Maj+Tab (changer de mode claude)' },
+  { label: '1', seq: '1', title: 'Choix 1' },
+  { label: '2', seq: '2', title: 'Choix 2' },
+  { label: '3', seq: '3', title: 'Choix 3' },
+  { label: 'y', seq: 'y', title: 'Oui' },
+  { label: 'n', seq: 'n', title: 'Non' },
+  { label: '^C', seq: '\x03', title: 'Ctrl+C' },
+  { label: '^D', seq: '\x04', title: 'Ctrl+D' },
+];
+
 /** Keystrokes are coalesced for this long before one POST — a paste or a fast typist = one request. */
 const INPUT_FLUSH_MS = 8;
 
@@ -147,6 +166,11 @@ export function ConsolePage() {
     termRef.current?.focus();
   };
 
+  const sendKey = (seq: string) => {
+    void api.consoleInput(seq).catch((e: Error) => setError(e.message));
+    termRef.current?.focus();
+  };
+
   const sendPaste = (text: string) => {
     const term = termRef.current;
     if (!term || !text) return;
@@ -215,6 +239,14 @@ export function ConsolePage() {
             </button>
           )}
         </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        {KEYS.map((k) => (
+          <button key={k.label} className="btn-ghost !px-2.5 !py-1 font-mono text-xs" disabled={!running} title={k.title} onClick={() => sendKey(k.seq)}>
+            {k.label}
+          </button>
+        ))}
       </div>
 
       {authMsg && <div className="text-xs text-zinc-300">{authMsg}</div>}
