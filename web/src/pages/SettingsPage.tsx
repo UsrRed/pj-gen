@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { MEMORY_PROVIDERS, MODEL_NAMES, type LanStatusDto, type MemoryProvider, type ModelName, type SettingsDto } from '@pjgen/shared';
+import { MEMORY_PROVIDERS, MODEL_NAMES, type UpdateStatusDto, type LanStatusDto, type MemoryProvider, type ModelName, type SettingsDto } from '@pjgen/shared';
 import { api } from '../api/client.js';
 import { useStore } from '../store/useStore.js';
 import { ALL_STEP_LABELS, T } from '../i18n/fr.js';
@@ -17,6 +17,7 @@ export function SettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notifyResult, setNotifyResult] = useState<string | null>(null);
   const [lan, setLan] = useState<LanStatusDto | null>(null);
+  const [update, setUpdate] = useState<UpdateStatusDto | null>(null);
   const [secretsPresent, setSecretsPresent] = useState<string[]>([]);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
   const [keySaved, setKeySaved] = useState<string | null>(null);
@@ -27,7 +28,11 @@ export function SettingsPage() {
   useEffect(() => {
     void api.settings().then(setForm);
     void api.lanStatus().then(setLan).catch(() => undefined);
+    const poll = () => void api.updateStatus().then(setUpdate).catch(() => undefined);
+    poll();
+    const pollTimer = setInterval(poll, 15_000);
     refreshSecrets();
+    return () => clearInterval(pollTimer);
   }, []);
 
   const saveIntegrationKey = async (varName: string) => {
@@ -213,6 +218,25 @@ export function SettingsPage() {
             onChange={(e) => setForm({ ...form, issuePollMinutes: Math.max(1, Math.min(120, Number(e.target.value) || 5)) })}
           />
         </label>
+      </div>
+
+      <div className="card space-y-3 p-5">
+        <h2 className="text-sm font-semibold text-zinc-300">{T.sUpdateSection}</h2>
+        <p className="text-xs text-zinc-600">{T.sUpdateHint}</p>
+        <div className={`text-sm ${update?.armed ? 'text-emerald-400' : 'text-zinc-400'}`}>
+          {update?.armed && update.expiresAt ? T.sUpdateArmed(new Date(update.expiresAt).toLocaleTimeString()) : T.sUpdateClosed}
+        </div>
+        {update && update.busyProjects.length > 0 && <p className="text-xs text-amber-400">{T.sUpdateBusy(update.busyProjects.join(', '))}</p>}
+        <div className="flex gap-2">
+          <button className="btn-primary !px-3 !py-1.5 text-sm" disabled={update?.armed} onClick={() => void api.updateArm().then(setUpdate)}>
+            {T.sUpdateArm}
+          </button>
+          {update?.armed && (
+            <button className="btn-ghost !px-3 !py-1.5 text-sm" onClick={() => void api.updateDisarm().then(setUpdate)}>
+              {T.sUpdateDisarm}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="card space-y-3 p-5">

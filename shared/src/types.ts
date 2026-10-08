@@ -223,6 +223,15 @@ export interface LanStatusDto {
   alreadyExposed: boolean;
 }
 
+/** Barrière de mise à jour automatique : fermée par défaut, armée par un clic, refermée par l'hôte au déploiement. */
+export interface UpdateStatusDto {
+  armed: boolean;
+  armedAt: number | null;
+  expiresAt: number | null;
+  /** Titles of projects currently building/deploying — a restart would cut them. */
+  busyProjects: string[];
+}
+
 /** State of the web console (one persistent shell in pj-gen's own environment). */
 export interface ConsoleStatusDto {
   /** False when the native pty module could not be loaded — `reason` says why. */

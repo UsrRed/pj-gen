@@ -1,4 +1,4 @@
-import type { AccessDto, ConsoleStatusDto, AppStateDto, ArtifactNode, GithubRepoView, GithubStatusDto, IssueDto, LanStatusDto, LogLineDto, ModelName, ProjectDetail, ProjectSize, ProjectSummary, QueueSnapshot, QuotaDto, SettingsDto, StatsDto, StepRunDto } from '@pjgen/shared';
+import type { AccessDto, ConsoleStatusDto, AppStateDto, ArtifactNode, GithubRepoView, GithubStatusDto, IssueDto, LanStatusDto, LogLineDto, ModelName, ProjectDetail, ProjectSize, ProjectSummary, QueueSnapshot, QuotaDto, SettingsDto, StatsDto, StepRunDto, UpdateStatusDto } from '@pjgen/shared';
 
 export const API_BASE = '';
 
@@ -106,6 +106,9 @@ export const api = {
   addTrustedUser: (login: string) => req<{ users: string[] }>('/api/github/trusted-users', { method: 'POST', body: JSON.stringify({ login }) }),
   removeTrustedUser: (login: string) =>
     req<{ users: string[] }>(`/api/github/trusted-users/${encodeURIComponent(login)}`, { method: 'DELETE', body: '{}' }),
+  updateStatus: () => req<UpdateStatusDto>('/api/update'),
+  updateArm: () => req<UpdateStatusDto>('/api/update/arm', { method: 'POST', body: '{}' }),
+  updateDisarm: () => req<UpdateStatusDto>('/api/update/disarm', { method: 'POST', body: '{}' }),
   consoleStatus: () => req<ConsoleStatusDto>('/api/console'),
   consoleStart: (cols: number, rows: number) =>
     req<ConsoleStatusDto>('/api/console/start', { method: 'POST', body: JSON.stringify({ cols, rows }) }),
