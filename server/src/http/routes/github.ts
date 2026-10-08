@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { FastifyInstance } from 'fastify';
 import type { GithubRepoView } from '@pjgen/shared';
 import type { Container } from '../../container.js';
-import { notFound } from '../../core/httpError.js';
+import { badRequest, notFound } from '../../core/httpError.js';
 import { toIssueDto } from '../../db/repos/index.js';
 import { AI_MARKER } from '../../github/issuePoller.js';
 
@@ -122,9 +122,14 @@ export function registerGithubRoutes(app: FastifyInstance, c: Container): void {
 
   app.post('/api/issues/:id/decision', async (req) => {
     const { id } = req.params as { id: string };
-    const body = z.object({ decision: z.enum(['skipped', 'queued']) }).parse(req.body);
+    const body = z.object({ decision: z.enum(['skipped', 'queued', 'fixing']) }).parse(req.body);
     const issue = c.repos.issues.byId(Number(id));
     if (!issue) throw notFound('Issue introuvable');
+    // 'fixing' = re-run only the publication of a fix that is already built (its micro request
+    // is done), e.g. after a failed push: no new session, finalizeFixing pushes and closes it.
+    if (body.decision === 'fixing' && c.repos.micro.latestForIssue(issue.id)?.status !== 'done') {
+      throw badRequest('Aucune correction terminée à republier pour cette issue');
+    }
     const updated = c.repos.issues.patch(issue.id, { decision: body.decision });
     c.bus.emit('issue.updated', issue.project_id, { issue: toIssueDto(updated) });
     if (body.decision === 'queued') {

@@ -89,3 +89,15 @@ describe('POST /api/issues/:id/decision — commentaire de prise en compte', () 
     expect(issueComment).not.toHaveBeenCalled();
   });
 });
+
+describe('POST /api/issues/:id/decision — republication', () => {
+  it('"fixing" est refusé sans correction terminée', async () => {
+    const { c } = await testContainer();
+    cRef = c;
+    const { issueId } = await seedProjectWithIssue(c, 'octo/repo');
+    appRef = await createApp(c);
+    const res = await appRef.inject({ method: 'POST', url: `/api/issues/${issueId}/decision`, payload: { decision: 'fixing' } });
+    expect(res.statusCode).toBe(400);
+    expect(c.repos.issues.byId(issueId)!.decision).not.toBe('fixing');
+  });
+});
