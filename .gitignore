@@ -5,3 +5,5 @@ dist/
 .DS_Store
 *.tsbuildinfo
 coverage/
+
+node_modules_tmp/
